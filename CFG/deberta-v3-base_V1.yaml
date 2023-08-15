@@ -1,0 +1,86 @@
+competition : CommonLit - Evaluate Student Summaries
+name : deberta-v3-base
+seed : 2022
+wandb : false
+
+platform : 
+  isgoogle : false
+  google : 
+    dpath : /content/gdrive/MyDrive/tmpdata/
+    opath : /content/gdrive/MyDrive/output/
+  featurize : 
+    dpath : /home/featurize/data/
+    opath : /home/featurize/work/ka-CESS-COMP/work/output/
+
+model:
+  loss: FeedbackLoss
+  loss_reduction: mean
+  max_len: 1024
+  max_len_eval: 1024
+  model_name: 'microsoft/deberta-v3-base'
+  num_labels: 6
+  pooling_params:
+    params: {}
+    pooling_name: MeanPooling
+  pretrained_config: null
+  spans: ''
+  sub_loss: RMSELoss
+  sub_loss_param:
+    reduction: null
+  target_cols : ['content', 'wording']
+  target_weights :
+    avg : [0.5, 0.5]
+    wtd : [0.45, 0.55]
+
+optimizer:
+  name : optim.AdamW
+  params : 
+    lr: 0.000004
+    betas: [0.9, 0.999]
+    eps: 0.000001
+    weight_decay: 0.01
+
+scheduler:
+  name: poly
+  params : 
+    lr_end: 0.0000007
+    power: 3
+  warmup: 0.04
+
+train_loader:
+  batch_size: 16
+  drop_last: true
+  num_workers: 8
+  pin_memory: true
+  shuffle: true
+
+val_loader:
+  batch_size: 16
+  drop_last: false
+  num_workers: 16
+  pin_memory: true
+  shuffle: false
+
+# max_norm try 10*batch_size init:1000
+trainer:
+  use_amp: true
+  epochs: 4
+  sample: true
+  gradient_checkpointing: true
+  grad_clip: true
+  max_norm: 1000
+
+callbacks:
+  save : true
+  es: false
+  steploss : 
+    tqdm : true
+    nprint : 3 
+  patience: 0
+  verbose_eval: 1
+  epoch_pct_eval: 0.1
+  epoch_eval_dist: uniforme
+  metric_track: val_loss
+  mode: min
+  top_k: 1
+  start_eval_epoch : 0
