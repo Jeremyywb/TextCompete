@@ -1,7 +1,13 @@
 competition : CommonLit - Evaluate Student Summaries
 name : deberta-v3-base
+version : CommonLitModelV1
 seed : 2022
 wandb : false
+device : 0
+
+#===========================
+# platform
+#===========================
 
 platform : 
   isgoogle : false
@@ -12,40 +18,111 @@ platform :
     dpath : /home/featurize/data/
     opath : /home/featurize/work/ka-CESS-COMP/work/output/
 
+#===========================
+# data process
+# 
+# dataset['pooling_name']
+# args.model['pooling_params']['pooling_name']
+#===========================
+
+
+data:
+  prepare:
+    prompt_max_len: 512
+    add_question: true
+    experiment: true
+  dataset:
+    add_question: true
+    target_cols: ['content', 'wording']
+    text_max_len : 512
+    prompt_text_max_len: 512
+
+
+#===========================
+# model
+#===========================
+selected_folds: [0,1,2,3]
+
 model:
-  loss: FeedbackLoss
+  loss: CommonLitLoss
   loss_reduction: mean
-  max_len: 1024
-  max_len_eval: 1024
-  model_name: 'microsoft/deberta-v3-base'
-  num_labels: 6
-  pooling_params:
-    params: {}
-    pooling_name: MeanPooling
-  pretrained_config: null
-  spans: ''
   sub_loss: RMSELoss
   sub_loss_param:
     reduction: null
+  max_len: 1024
+  max_len_eval: 1024
+  params:
+    model_name: microsoft/deberta-v3-base
+    span_pool: false
+    gradient_checkpointing: true
+    multilfc: false
+    multilpool: false
+    addReLU6: true
+    freezing: 0
+    init_head: false
+    config_path: 
+  CrosenEoderPara :
+    mask_flag : false
+    numcross : 3
+    numconv1: 0
+    d_model : 762
+    attParameter : {}
+    downConvPara : {}
+  CrosAttPara:
+    mask_flag : false
+    d_model: 762
+    d_ff: 762
+    n_heads: 8
+    factor: 35
+    dropout: 0.1
+    attType: prob
+    activation: relu
+  CrosConvPara:
+    c_in: 762
+    d_model: 762
+    kernel_size: 5
+  pooling_params :
+    pooling_name: MeanPooling
+    params : {}
+  spans_pooling_params :
+    pooling_name : AttentionHead
+    params : {}
+  spans: ''
   target_cols : ['content', 'wording']
   target_weights :
     avg : [0.5, 0.5]
     wtd : [0.45, 0.55]
 
+#===========================
+# optimizer
+#===========================
+
+
 optimizer:
   name : optim.AdamW
   params : 
-    lr: 0.000004
+    lr: 0.00002
     betas: [0.9, 0.999]
     eps: 0.000001
     weight_decay: 0.01
 
+#===========================
+# scheduler
+# poly,linear,cosine,OneCycleLR
+#===========================
+
+
 scheduler:
-  name: poly
+  name: cosine
   params : 
     lr_end: 0.0000007
     power: 3
   warmup: 0.04
+
+#===========================
+# train_loader
+#===========================
+
 
 train_loader:
   batch_size: 16
@@ -54,6 +131,11 @@ train_loader:
   pin_memory: true
   shuffle: true
 
+#===========================
+# val_loader
+#===========================
+
+
 val_loader:
   batch_size: 16
   drop_last: false
@@ -61,7 +143,14 @@ val_loader:
   pin_memory: true
   shuffle: false
 
-# max_norm try 10*batch_size init:1000
+#===========================
+# trainer
+# max_norm : 
+#   init : 1000 
+#   experiment :10*batch_size 
+#===========================
+
+
 trainer:
   use_amp: true
   epochs: 4
@@ -69,6 +158,12 @@ trainer:
   gradient_checkpointing: true
   grad_clip: true
   max_norm: 1000
+
+
+#===========================
+# callbacks
+#===========================
+
 
 callbacks:
   save : true
