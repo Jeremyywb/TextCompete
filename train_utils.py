@@ -603,21 +603,21 @@ def _inference(args, submission, test, prompt_df):
     grouptest = test.groupby(['prompt_id'])
     target = args.model['target_cols']
 
-	for fold in args.selected_folds:
-		accelerator.print(f'\n**********************\nInfering FOLD {fold}')
-    	model = init_model(args, fold, accelerator)
-    	model = accelerator.prepare(model)
-    	for gname,gtest in grouptest:
-    		accelerator.print(f'FOLD {fold}\n  [============]processing {gname}...')
-    		test_loader = get_loader( args, gtest,prompt_df)
-    		ypred = []
+    for fold in args.selected_folds:
+        accelerator.print(f'\n**********************\nInfering FOLD {fold}')
+        model = init_model(args, fold, accelerator)
+        model = accelerator.prepare(model)
+        for gname,gtest in grouptest:
+            accelerator.print(f'FOLD {fold}\n  [============]processing {gname}...')
+            test_loader = get_loader( args, gtest,prompt_df)
+            ypred = []
     
-    		for inputs, prompt_inputs in test_loader:
-        		pred = inference_step(args,model,inputs, prompt_inputs)
-        		pred = accelerator.gather_for_metrics(pred)
-        		ypred.append( pred.detach().cpu().numpy() )
-        	prediction = np.concatenate(ypred)
-        	test.loc[test['prompt_id']==gname, target] += prediction/len(args.selected_folds)
+            for inputs, prompt_inputs in test_loader:
+                pred = inference_step(args,model,inputs, prompt_inputs)
+                pred = accelerator.gather_for_metrics(pred)
+                ypred.append( pred.detach().cpu().numpy() )
+            prediction = np.concatenate(ypred)
+            test.loc[test['prompt_id']==gname, target] += prediction/len(args.selected_folds)
     
     #======================================================================
     #print logs and save ckpt  
