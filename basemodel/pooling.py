@@ -121,7 +121,7 @@ class AttentionHead(nn.Module):
     #========================
     
     def pack_unmachable(self,tensors):
-        nt = torch.nested_tensor(tensors)
+        nt = torch.nested.nested_tensor(tensors)
         tensors = nt.to_padded_tensor(0.0)
         del nt
         return tensors
@@ -142,9 +142,9 @@ class AttentionHead(nn.Module):
         for samples,labels in zip( last_hidden_state, labeled_input_ids ):
             doc_embs.append(self.sents_avgembeddings(samples,labels ))
         mask = [torch.tensor([1]).expand(emb.shape[0]) for emb in doc_embs]
-        mask = mask.to(last_hidden_state.device)
         doc_embs = self.pack_unmachable(doc_embs)
         mask =torch.LongTensor(self.pack_unmachable(mask))
+        mask = mask.to(last_hidden_state.device)
         #ignnored special tokens like cls,",","!"?"...
         return doc_embs[:,1:,:], mask[:,1:]
 
@@ -175,17 +175,17 @@ class NLPPooling(nn.Module):
         if self.pooling_name in ['MeanPooling','MaxPooling','MinPooling']:
             # Pooling between cls and sep / cls and sep embedding are not included
             # last_hidden_state = self.pooler(last_hidden_state[:,1:-1,:],attention_mask[:,1:-1])
-            last_hidden_state = self.pooler(last_hidden_state,attention_mask)
+            last_hidden_state = self.pooler(last_hidden_state,attention_mask_or_labelid)
         elif self.pooling_name=="CLS":
             # Use only cls embedding
             last_hidden_state = last_hidden_state[:,0,:]
         elif self.pooling_name=="GeMText":
             # Use Gem Pooling on all tokens
-            last_hidden_state = self.pooler(last_hidden_state,attention_mask)
+            last_hidden_state = self.pooler(last_hidden_state,attention_mask_or_labelid)
         
         elif self.pooling_name=="AttentionHead":
             # sentance pooling ,exclueded cls,sep,",","!","."
-            last_hidden_state = self.pooler(last_hidden_state,attention_mask)
+            last_hidden_state = self.pooler(last_hidden_state,attention_mask_or_labelid)
         else:
             # No pooling
             last_hidden_state = last_hidden_state

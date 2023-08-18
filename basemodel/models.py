@@ -3,8 +3,16 @@ import torch.nn as nn
 from transformers import AutoConfig, AutoModel
 import torch.utils.checkpoint
 import torch.nn.functional as F
-from TextCompete.basemodel.models import NLPPooling
+from TextCompete.basemodel.pooling import NLPPooling
 from W_Informer.models.domian_encoder import PromptAwareEncoder,ConvPoolLayer
+from torch.cuda.amp import autocast
+
+
+def top_n_layer_freeze(module,n):
+    for i in range(0,n,1):
+        for n,p in module.encoder.layer[i].named_parameters():
+            p.requires_grad = False
+
 
 class CommonLitModelV1(nn.Module):
     def __init__(
@@ -12,17 +20,18 @@ class CommonLitModelV1(nn.Module):
         CrosAttPara,
         CrosConvPara,
         CrosenEoderPara,
-        pooling_params={},
-        spans_pooling_params = {},
         model_name,
         span_pool,
         gradient_checkpointing,
         multilfc,
         multilpool,
-        addReLU6,
+        add_prompt,
+        activation,
         freezing,
         init_head,
-        config_path=None
+        config_path=None,
+        pooling_params={},
+        spans_pooling_params = {},
                         ):
         super().__init__()
         self.config = AutoConfig.from_pretrained(model_name, output_hidden_states=True) if not config_path else torch.load(config_path)
@@ -40,14 +49,15 @@ class CommonLitModelV1(nn.Module):
             self.backbone.gradient_checkpointing_enable()
         self.span_pool = span_pool
         self.multilpool = multilpool
-        self.addReLU6 = addReLU6
+        self.activation = activation
         self.init_head = init_head
+        self.add_prompt = add_prompt
 
         d_model = self.config.hidden_size
         CrosAttPara['d_model'] = CrosConvPara['d_model'] = CrosenEoderPara['d_model'] =CrosConvPara['c_in'] = d_model
         CrosAttPara['d_ff'] = CrosAttPara['d_model']*4
         CrosenEoderPara['attParameter'].update(CrosAttPara)
-        CrosenEoderPara['downConvPara'].update(convpara)
+        CrosenEoderPara['downConvPara'].update(CrosConvPara)
         self.encoders = PromptAwareEncoder(**CrosenEoderPara)
         self.pooling_params = pooling_params
         self.pooling_params.update({"in_features":self.config.hidden_size,
@@ -64,7 +74,7 @@ class CommonLitModelV1(nn.Module):
             self.spans_pool = NLPPooling(**self.spans_pooling_params)
         if self.multilpool:
             finaldim = self.spans_pooling_params['out_features'] + self.pooling_params['out_features']
-        elif span_pool:
+        elif self.span_pool:
             finaldim = self.spans_pooling_params['out_features']
         else:
             finaldim = self.pooling_params['out_features']
@@ -72,18 +82,16 @@ class CommonLitModelV1(nn.Module):
         # self.norm = nn.LayerNorm(self.config.hidden_size)
         # self.norm2= nn.LayerNorm(self.config.hidden_size)
         if multilfc:
-            self.outproj = nn.Sequential(
-                    nn.Linear(finaldim, finaldim//2),
-                    # nn.BatchNorm1d(finaldim//2),
-                    nn.ELU(),
-                    nn.Linear(finaldim//2, 64),
-                    nn.ELU(),
-                    nn.Linear(64, 2),
-            )
+            outprojs = [nn.Linear(finaldim, finaldim//2),
+                        # nn.BatchNorm1d(finaldim//2),
+                        nn.ELU(),
+                        nn.Linear(finaldim//2, 64),
+                        nn.ELU(),
+                        nn.Linear(64, 2),
+                         ]
         else:
-            self.outproj = nn.Sequential(
-                nn.Linear(finaldim, 2)
-            )
+            outprojs = [nn.Linear(finaldim, 2) ]
+
 
         #==================
         # if add relu
@@ -91,8 +99,13 @@ class CommonLitModelV1(nn.Module):
         #==================
 
 
-        if self.addReLU6:
-            self.outproj.append(nn.ReLU6())
+        if self.activation=='relu6':
+            outprojs.append(nn.ReLU6())
+        elif self.activation=='leakyrelu':
+            outprojs.append(nn.LeakyReLU(0.2))
+        
+
+        self.outproj = nn.Sequential(*outprojs)
 
         if self.init_head:
             self.outproj.apply(self._init_weights)
@@ -123,19 +136,23 @@ class CommonLitModelV1(nn.Module):
         prompt_inputs
                      ):
         hidden_states = self.backbone(inputs['input_ids'], inputs['attention_mask'])[0]
-        p_hidden_states = self.backbone(prompt_inputs['input_ids'], prompt_inputs['attention_mask'])[0]
-        hidden_states = self.encoders(
-                hidden_states,
-                p_hidden_states,
-                prompt_inputs['attention_mask']
-            )
-        del p_hidden_states
+        # print(hidden_states.shape)
+
+        if self.add_prompt:
+            p_hidden_states = self.backbone(prompt_inputs['input_ids'], prompt_inputs['attention_mask'])[0]
+            hidden_states = self.encoders(
+                    hidden_states,
+                    p_hidden_states,
+                    prompt_inputs['attention_mask']
+                )
+            del p_hidden_states
+
         if self.multilpool:
             out = torch.cat([
                 self.pool_ly(hidden_states,inputs['smask']),
                 self.spans_pool(hidden_states,inputs['slable']),
                  ],dim=-1)
-        elif span_pool:
+        elif self.span_pool:
             out = self.spans_pool(hidden_states,inputs['slable'])
         else:
             out = self.pool_ly(hidden_states,inputs['smask'])
@@ -149,8 +166,11 @@ class CommonLitModelV1(nn.Module):
         prompt_inputs
                     ):
         feature = self.feature(inputs, prompt_inputs)
-        if self.addReLU6:
+        if self.activation == 'relu6':
             feature = self.outproj(feature)*1.08-2
+        elif self.activation == 'sigmoid':
+            feature = self.outproj(feature)*3.25+1.25
         else:
             feature = self.outproj(feature)
         return feature
+

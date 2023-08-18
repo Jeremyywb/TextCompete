@@ -13,6 +13,9 @@ class CommonLitDataset(Dataset):
 		prompt_df,
 		summary_df,
 		pooling_name,
+		multilpool,
+		span_pool,
+		pool_question,
 		add_question,
 		target_cols,
 		text_max_len = 512,
@@ -24,8 +27,11 @@ class CommonLitDataset(Dataset):
 		#tokenizer.add_tokens(['[QUESSEP]'], special_tokens=True)
 		#=====================
 
+		self.pool_question = pool_question
 		self.add_question = add_question
 		self.pooling_name = pooling_name
+		self.multilpool = multilpool
+		self.span_pool = span_pool
 		self.sentSEPs = [',','.','!','?','[CLS]', '[QUESSEP]']#CLS:1
 		self.sentSEPs = tokenizer.convert_tokens_to_ids(self.sentSEPs)#list
 		self.quesSEP = tokenizer.convert_tokens_to_ids(['[QUESSEP]'])[0]
@@ -79,7 +85,10 @@ class CommonLitDataset(Dataset):
 		inputs_ids = inputs['input_ids'].numpy()
 		mask = np.isin(inputs_ids, self.sentSEPs)
 
-		if self.add_question:
+		if self.pool_question:
+			mask = np.cumsum(mask)
+			mask[0] = 0
+		elif self.add_question:
 			quesidx = np.where(inputs_ids == self.quesSEP)[0][0]
 			mask[:quesidx] = 0
 			mask = np.cumsum(mask)
@@ -94,8 +103,9 @@ class CommonLitDataset(Dataset):
 		# mask : head atteion pooling
 		# pool_mask : pooling
 		#====================
-
-		inputs['slable'] = torch.LongTensor(mask) 
+		if (self.multilpool or self.span_pool) :
+			inputs['slable'] = torch.LongTensor(mask)
+		
 		if self.pooling_name in ['MeanPooling','MaxPooling','MinPooling']:
 			inputs['smask'] = torch.LongTensor(pool_mask) 
 		elif self.pooling_name=="GeMText":

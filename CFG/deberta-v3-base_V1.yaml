@@ -30,16 +30,18 @@ data:
   prepare:
     prompt_max_len: 512
     add_question: true
-    experiment: true
+    experiment: false
+    experiment_rate: 0.5
   dataset:
-    add_question: true
+    pool_question: true
     target_cols: ['content', 'wording']
     text_max_len : 512
-    prompt_text_max_len: 512
+    prompt_text_max_len: 1024
 
 
 #===========================
 # model
+# params:act[relu6,sigmoid]
 #===========================
 selected_folds: [0,1,2,3]
 
@@ -47,19 +49,21 @@ model:
   loss: CommonLitLoss
   loss_reduction: mean
   sub_loss: RMSELoss
+  use_weights: true
   sub_loss_param:
-    reduction: null
+    reduction: none
   max_len: 1024
   max_len_eval: 1024
   params:
     model_name: microsoft/deberta-v3-base
     span_pool: false
+    add_prompt: true
     gradient_checkpointing: true
     multilfc: false
     multilpool: false
-    addReLU6: true
+    activation: none
     freezing: 0
-    init_head: false
+    init_head: true
     config_path: 
   CrosenEoderPara :
     mask_flag : false
@@ -91,15 +95,18 @@ model:
   target_cols : ['content', 'wording']
   target_weights :
     avg : [0.5, 0.5]
-    wtd : [0.45, 0.55]
+    wtd : [0.55, 0.45]
 
 #===========================
 # optimizer
+# LLDR : <1. if(LLDR=1) means no lldr
 #===========================
 
 
 optimizer:
   name : optim.AdamW
+  LLDR: 0.9
+  HeadLR: 0.0001
   params : 
     lr: 0.00002
     betas: [0.9, 0.999]
@@ -113,7 +120,7 @@ optimizer:
 
 
 scheduler:
-  name: cosine
+  name: poly
   params : 
     lr_end: 0.0000007
     power: 3
@@ -127,7 +134,7 @@ scheduler:
 train_loader:
   batch_size: 16
   drop_last: true
-  num_workers: 8
+  num_workers: 4
   pin_memory: true
   shuffle: true
 
@@ -139,7 +146,7 @@ train_loader:
 val_loader:
   batch_size: 16
   drop_last: false
-  num_workers: 16
+  num_workers: 4
   pin_memory: true
   shuffle: false
 
@@ -157,7 +164,7 @@ trainer:
   sample: true
   gradient_checkpointing: true
   grad_clip: true
-  max_norm: 1000
+  max_norm: 64
 
 
 #===========================
