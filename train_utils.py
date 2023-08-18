@@ -247,7 +247,7 @@ def get_loader( args, summary_df,prompt_df, fold=None ):
                         valid_summary_df,
                         **dset_parameters
                          )
-    test_loader = DataLoader(test_dataset,**args.val_loader)
+    test_loader = DataLoader(test_dataset,**args.test_loader)
     return test_loader
 
 
@@ -597,12 +597,15 @@ def kfold(args,summary_df, prompt_df, train_logger):
     return ver_msg
 
 
-
 def _inference(args, submission, test, prompt_df):
     accelerator = Accelerator(mixed_precision='fp16')
     grouptest = test.groupby(['prompt_id'])
     target = args.model['target_cols']
-
+    tokenizer = AutoTokenizer.from_pretrained(args.modelroot+'/tokenizer')
+    tokenizer.save_pretrained(Path(args.checkpoints_path)/'tokenizer/')
+    
+    tokenizer.add_tokens(['[QUESSEP]'], special_tokens=True)
+    
     for fold in args.selected_folds:
         accelerator.print(f'\n**********************\nInfering FOLD {fold}')
         model = init_model(args, fold, accelerator)
@@ -610,6 +613,7 @@ def _inference(args, submission, test, prompt_df):
         for gname,gtest in grouptest:
             accelerator.print(f'FOLD {fold}\n  [============]processing {gname}...')
             test_loader = get_loader( args, gtest,prompt_df)
+            test_loader = accelerator.prepare(test_loader)
             ypred = []
     
             for inputs, prompt_inputs in test_loader:
