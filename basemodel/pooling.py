@@ -16,6 +16,7 @@ class MeanPooling(nn.Module):
         mean_embeddings = sum_embeddings / sum_mask
         del sum_embeddings,input_mask_expanded
         return mean_embeddings
+
 class MaxPooling(nn.Module):
     def __init__(self):
         super(MaxPooling, self).__init__()
@@ -26,6 +27,7 @@ class MaxPooling(nn.Module):
         embeddings[input_mask_expanded == 0] = -1e9
         max_embeddings, _ = torch.max(embeddings, dim = 1)
         return max_embeddings
+
 class MeanMax(nn.Module):
     def __init__(self):
         super(MeanMax, self).__init__()

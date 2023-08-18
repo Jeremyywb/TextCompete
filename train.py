@@ -50,14 +50,14 @@ def load_files(args):
 	return summary_df, prompt_df
 
 
-cfg_path = '...'
-with open(cfg_path, 'r') as f:
-	args = yaml.safe_load(f)
-args = SimpleNamespace(**args)
-args = PathSet(args)
-summary_df, prompt_df = load_files(args)
-processor = PreProcess(**args.data['prepare'])
-train_logger = _logger(versionName=args.checkpoints_path + 'train')
-ver_logger = _logger(versionName=args.checkpoints_path + 'modelVersions')
-summary_df, prompt_df = processor.processor(summary_df, prompt_df)
-kfold(args,summary_df, prompt_df, train_logger, ver_logger)
+# cfg_path = '...'
+# with open(cfg_path, 'r') as f:
+# 	args = yaml.safe_load(f)
+# args = SimpleNamespace(**args)
+# args = PathSet(args)
+# summary_df, prompt_df = load_files(args)
+# processor = PreProcess(**args.data['prepare'])
+# train_logger = _logger(versionName=args.checkpoints_path + 'train')
+# ver_logger = _logger(versionName=args.checkpoints_path + 'modelVersions')
+# summary_df, prompt_df = processor.processor(summary_df, prompt_df)
+# kfold(args,summary_df, prompt_df, train_logger, ver_logger)

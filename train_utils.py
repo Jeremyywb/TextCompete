@@ -211,8 +211,6 @@ def inference_step(args,model,inputs, prompt_inputs):
 
 
 def get_loader( args, tokenizer,summary_df,prompt_df, fold=None ):
-
-
     dset_parameters = args.data['dataset']
     dset_parameters.update(
         {"pooling_name":args.model['pooling_params']['pooling_name'],
@@ -244,7 +242,7 @@ def get_loader( args, tokenizer,summary_df,prompt_df, fold=None ):
     test_dataset = CommonLitDataset(
                         tokenizer,
                         prompt_df,
-                        valid_summary_df,
+                        summary_df,
                         **dset_parameters
                          )
     test_loader = DataLoader(test_dataset,**args.test_loader)
@@ -262,10 +260,14 @@ def init_model(args, fold=None, accelerator = None):
 
     if not accelerator:
         model = eval(args.version)(**model_parameters)
-    else:    
-        args.model['params']['config_path'] = f"{args.modelroot}{args.name}_fold{fold}_best.pth"
+    else:
+        model_parameters['config_path'] = f'{args.modelroot}config.pth'
         with accelerator.main_process_first():
             model = eval(args.version)(**model_parameters)
+            state = torch.load(f"{args.modelroot}{args.name}_fold{fold}_best.pth",
+            #                            map_location=torch.device('cpu')
+                    )
+            model.load_state_dict(state)
     return model
 
 
@@ -514,7 +516,7 @@ def train_one_fold(
     train_logger.info(f"#==========================FOLD{fold}==========================")
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
 
-    train_loader, val_loader = get_loader( tokenizer, args, summary_df,prompt_df, fold )
+    train_loader, val_loader = get_loader(args, tokenizer, summary_df,prompt_df, fold )
     model = init_model(args).to(device)
     model.zero_grad()
 
@@ -602,22 +604,23 @@ def _inference(args, submission, test, prompt_df):
     grouptest = test.groupby(['prompt_id'])
     target = args.model['target_cols']
     tokenizer = AutoTokenizer.from_pretrained(args.modelroot+'/tokenizer')
-    tokenizer.save_pretrained(Path(args.checkpoints_path)/'tokenizer/')
-    
     tokenizer.add_tokens(['[QUESSEP]'], special_tokens=True)
     
     for fold in args.selected_folds:
         accelerator.print(f'\n**********************\nInfering FOLD {fold}')
         model = init_model(args, fold, accelerator)
         model = accelerator.prepare(model)
+        model.eval()
         for gname,gtest in grouptest:
             accelerator.print(f'FOLD {fold}\n  [============]processing {gname}...')
-            test_loader = get_loader( tokenizer, args, gtest,prompt_df)
+            test_loader = get_loader(args,tokenizer,  gtest,prompt_df)
             test_loader = accelerator.prepare(test_loader)
             ypred = []
-    
+
             for inputs, prompt_inputs in test_loader:
-                pred = inference_step(args,model,inputs, prompt_inputs)
+                with torch.no_grad():
+                    inputs, prompt_inputs = collate(inputs, prompt_inputs)
+                    pred = model(inputs, prompt_inputs)
                 pred = accelerator.gather_for_metrics(pred)
                 ypred.append( pred.detach().cpu().numpy() )
             prediction = np.concatenate(ypred)

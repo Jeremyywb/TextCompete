@@ -149,6 +149,7 @@ val_loader:
   num_workers: 4
   pin_memory: true
   shuffle: false
+
 test_loader:
   batch_size: 16
   drop_last: false
