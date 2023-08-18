@@ -210,7 +210,7 @@ def inference_step(args,model,inputs, prompt_inputs):
 #=======================
 
 
-def get_loader( args, summary_df,prompt_df, fold=None ):
+def get_loader( args, tokenizer,summary_df,prompt_df, fold=None ):
 
 
     dset_parameters = args.data['dataset']
@@ -514,7 +514,7 @@ def train_one_fold(
     train_logger.info(f"#==========================FOLD{fold}==========================")
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
 
-    train_loader, val_loader = get_loader( args, summary_df,prompt_df, fold )
+    train_loader, val_loader = get_loader( tokenizer, args, summary_df,prompt_df, fold )
     model = init_model(args).to(device)
     model.zero_grad()
 
@@ -612,7 +612,7 @@ def _inference(args, submission, test, prompt_df):
         model = accelerator.prepare(model)
         for gname,gtest in grouptest:
             accelerator.print(f'FOLD {fold}\n  [============]processing {gname}...')
-            test_loader = get_loader( args, gtest,prompt_df)
+            test_loader = get_loader( tokenizer, args, gtest,prompt_df)
             test_loader = accelerator.prepare(test_loader)
             ypred = []
     
