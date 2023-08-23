@@ -26,6 +26,7 @@ class PreProcess(object):
 		pattern = r'(?<![\.,!?]) +(?=[\.,!?])'
 		replacement = '.'
 		text = re.sub(pattern, replacement, text)
+		text = text.strip()
 		return text
 
 	def _len_list_para(self, texts):
@@ -84,6 +85,7 @@ class PreProcess(object):
 		print( "#CASE AFTER" )
 		print( '#=========================\n\n' )
 		print(prompt_df['prompt_text'].values[0])
+		
 		summary_df['text'] = summary_df['text'].map( self.preprocess )
 		if self.add_question:
 			summary_df = summary_df.merge(
@@ -91,7 +93,7 @@ class PreProcess(object):
 		 		on = ['prompt_id'],
 		 		how = 'left' 
 			 )
-			summary_df['text'] = 'question: ' + summary_df['prompt_question'] + ' [QUESSEP] ' + summary_df['text']
+			summary_df['text'] = summary_df['prompt_question'] + ' [SEP] ' + summary_df['text']
 		if self.experiment:
 			summary_df = summary_df.groupby("prompt_id").sample(frac=self.experiment_rate, random_state=2)
 		return summary_df, prompt_df

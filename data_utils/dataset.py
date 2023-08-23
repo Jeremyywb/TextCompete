@@ -32,9 +32,9 @@ class CommonLitDataset(Dataset):
 		self.pooling_name = pooling_name
 		self.multilpool = multilpool
 		self.span_pool = span_pool
-		self.sentSEPs = [',','.','!','?','[CLS]', '[QUESSEP]']#CLS:1
+		self.sentSEPs = ['!','?','.','\n','[CLS]','[SEP]']#CLS:1,SEP:2
 		self.sentSEPs = tokenizer.convert_tokens_to_ids(self.sentSEPs)#list
-		self.quesSEP = tokenizer.convert_tokens_to_ids(['[QUESSEP]'])[0]
+		print(f"#===============================\n#{self.sentSEPs}\n#===============================")
 		self.tokenizer = tokenizer
 
 		self.text_max_len = text_max_len
@@ -57,6 +57,7 @@ class CommonLitDataset(Dataset):
 	def _pre_prompt_dict(self, prompts):
 		_tokenized = [self.prepare_input(v, self.prompt_text_max_len)  for v in prompts]
 		_max_len = max( [ sum(inputs['attention_mask']) for inputs in _tokenized])
+		print(f"MAX PROMPT LEN <{_max_len}>")
 		_max_len_toks = [ ]
 		for inputs in _tokenized:
 			for k, v in inputs.items():
@@ -83,31 +84,30 @@ class CommonLitDataset(Dataset):
 		inputs = self.prepare_input(self.texts[_id], self.text_max_len)
 		prompt_inputs = self.prompt_dict[self.prompt_id[_id]]
 		inputs_ids = inputs['input_ids'].numpy()
-		mask = np.isin(inputs_ids, self.sentSEPs)
-
 		if self.pool_question:
-			mask = np.cumsum(mask)
-			mask[0] = 0
-		elif self.add_question:
-			quesidx = np.where(inputs_ids == self.quesSEP)[0][0]
-			mask[:quesidx] = 0
-			mask = np.cumsum(mask)
-			mask[quesidx] = 0
+			sepmask = (inputs_ids == 2)
+			mask = sepmask.cumsum()
+			mask[mask==mask[-1]]=0
+			mask = mask*(~sepmask)
 		else:
-			mask = np.cumsum(mask)
-			mask[0] = 0
-		mask[mask==mask[-1]]=0
-		pool_mask = (mask>0)
-
+			sepmask = np.isin(inputs_ids,[1,2])
+			mask = sepmask.cumsum()
+			mask[mask==mask[-1]]=0
+			mask= (mask>0)*(~sepmask)*1
+		if (self.multilpool or self.span_pool):
+			sepmask = np.isin(inputs_ids,self.sentSEPs)
+			slable = sepmask.cumsum()
+			slable[slable==slable[-1]]=0
+			slable[0] = 0
+			
 		#============================
 		# mask : head atteion pooling
 		# pool_mask : pooling
 		#====================
 		if (self.multilpool or self.span_pool) :
-			inputs['slable'] = torch.LongTensor(mask)
-		
+			inputs['slable'] = torch.LongTensor(slable)
 		if self.pooling_name in ['MeanPooling','MaxPooling','MinPooling']:
-			inputs['smask'] = torch.LongTensor(pool_mask) 
+			inputs['smask'] = torch.LongTensor(mask) 
 		elif self.pooling_name=="GeMText":
 			inputs['smask'] = inputs["attention_mask"]
 		if self.labels is not None:

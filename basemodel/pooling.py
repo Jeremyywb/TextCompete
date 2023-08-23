@@ -14,7 +14,12 @@ class MeanPooling(nn.Module):
         sum_mask = input_mask_expanded.sum(1)
         sum_mask = torch.clamp(sum_mask, min=1e-9)
         mean_embeddings = sum_embeddings / sum_mask
+        # mean_embeddings.register_hook(lambda t: print(f'''===========================\n#out = self.pool_ly(hidden_states,inputs['smask']):\n {t}'''))
+        mean_embeddings = torch.clamp(mean_embeddings, max=1e8)
         del sum_embeddings,input_mask_expanded
+        # input_mask_expanded = attention_mask/attention_mask.sum(1).unsqueeze(1)
+        # input_mask_expanded = input_mask_expanded.unsqueeze(-1).expand(last_hidden_state.size()).float()
+        # mean_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
         return mean_embeddings
 
 class MaxPooling(nn.Module):

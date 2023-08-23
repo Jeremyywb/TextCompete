@@ -309,10 +309,10 @@ class Hook():
 def gradhook(name):
     def hookfn(grad):
         #******************mark**************
-        grad = torch.clamp(grad, -1e4, 1e4)
-        grad = torch.nan_to_num(grad)
         out = grad.clone()
         if torch.logical_or(out.isnan().any(),out.isinf().any()):
+            grad = torch.clamp(grad, -2, 2)
+            grad = torch.nan_to_num(grad)
             print(f"[==================={name}===================]")
             print(out)
             all_zeros = torch.all(out == 0)
@@ -327,22 +327,7 @@ def gradhook(name):
 #=======================
 
 
-def evaluate_epoch(
-    args,
-    model,
-    fold,
-    criterion,
-    val_loader, 
-    device,
-    mode_,
-    best,
-    _log_lr,
-    epoch,
-    step,
-    start_time,
-    train_logger,
-    log_met
-    ):
+def evaluate_epoch(args,model,criterion,val_loader, device):
     model.eval()
     ypred = []
     ytrue = []
@@ -363,72 +348,21 @@ def evaluate_epoch(
     
     ytrue = torch.cat(ytrue,dim=0).detach().cpu()#.numpy() 
     ypred = torch.cat(ypred,dim=0).detach().cpu()#.numpy() 
+
     del inputs, prompt_inputs, pred
-    val_met = get_score(args, 'val_loss', ytrue, ypred)
-    
-        # Evaluation
-    _score = val_met[args.callbacks['metric_track']]
-    log_met.update(val_met)
+    met = get_score(args, 'val_loss', ytrue, ypred)
+    return met,losses.avg, ytrue, ypred
 
 
-    #===================
-    # saving best model
-    #===================
-    is_best_val = False
-    if ( mode_*_score < mode_*best ):
-        log_met['status'] = f"improved from {best:.4f}!!"
-        best = _score
-        is_best_val = True
-        _name = f"{args.checkpoints_path}{args.name}_fold{fold}_{args.save_name_prefix}best.pth"
-        torch.save(model.state_dict(), _name)
-
-    #===================
-    # prepare train log
-    #===================
-
-    nb_step_per_epoch = args.len_train_loader
-    log_met.update({"LR":_log_lr})
-    if args.prev_step ==0:
-        msg = ""
-    else:
-        msg = f"Epoch {epoch+1}/{args.trainer['epochs']}"
-    msg += f'\n    step {step}/{nb_step_per_epoch}  [==============]'
-    
-    elapsed_time = time.time() - start_time
-    args.start_time = time.time()
-    epoch_time_s = int(elapsed_time)
-    epoch_time_ms = int( elapsed_time/ (step-args.prev_step )*1000)
-    args.prev_step = step
-    msg += f" - {epoch_time_s}s {epoch_time_ms}ms/step - "
-
-    for metric_name, metric_value in log_met.items():
-        if metric_name == 'status':
-            msg += f"{metric_name:<3}: {metric_value:<3} - "
-            continue
-        elif metric_name == 'LR':
-            msg += f"{metric_name:<3}: {metric_value:.6f} - "
-            continue
-        msg += f"{metric_name:<3}: {metric_value:.4f} - "
-    msg += f"val_avg_loss: {losses.avg:<3} - "
-    msg += f"| {str(datetime.timedelta(seconds=epoch_time_s)) + 's':<4}" 
-    train_logger.info(msg)
-
-    
-    return is_best_val,ypred, ytrue,best
-    # met,losses.avg, ytrue, ypred
-    # best_predictions, val_label
-
-
-def train_epoch(args,fold, model,criterion,optimizer,scheduler,train_loader, val_loader, device):
+def train_epoch(args,model,criterion,optimizer,scheduler,train_loader, device):
     model.train()
-    args.prev_step = 0
     if args.trainer['use_amp'] and ("cuda" in str(device)):
         scaler = amp.GradScaler(enabled=True)#apex
         print("Using Amp")
     else:
         scaler = None
     log_losses = AverageMeter()
-    args.start_time = time.time()
+    start_time = time.time()
     optimizer.zero_grad()
     model.zero_grad()
     # Init Metrics
@@ -511,36 +445,7 @@ def train_epoch(args,fold, model,criterion,optimizer,scheduler,train_loader, val
         y_true.append(inputs['target'].detach().cpu())
         y_pred.append(pred.detach().cpu())
         del inputs, prompt_inputs, pred
-        if args.callbacks['stepwise']:
-            _log_lr = scheduler.get_lr()[0]
-            log_met = {"avg_loss":log_losses.avg}
-            trn_met = get_score(
-                args, 
-                'trn_loss', 
-                torch.cat(y_trn_true,dim=0), 
-                torch.cat(y_trn_pred,dim=0)
-            )
-            log_met.update(trn_met)
-            is_best_val,ypred, ytrue,best = evaluate_epoch(
-                                                args,
-                                                model,
-                                                fold,
-                                                criterion,
-                                                val_loader, 
-                                                device,
-                                                mode_,
-                                                best,
-                                                _log_lr,
-                                                epoch,
-                                                step,
-                                                start_time,
-                                                train_logger,
-                                                log_met
-                                        )
-
-
-
-    return , y_true, y_pred
+    return {"avg_loss":log_losses.avg}, y_true, y_pred
 
 #=======================
 # one fold
@@ -599,11 +504,52 @@ def fit_net(
         # Init
         start_time = time.time()
         log_met, y_true, y_pred = train_epoch(args,model,criterion,optimizer, scheduler ,train_loader, device)
-        val_met, avg_val_loss,val_label, val_pred = evaluate_epoch(
-            args,model,criterion,val_loader, device,
-            log_met, y_true, y_pred)
+        val_met, avg_val_loss,val_label, val_pred = evaluate_epoch(args,model,criterion,val_loader, device)
 
+        trn_met = get_score(args, 'trn_loss', torch.cat(y_true,dim=0), torch.cat(y_pred,dim=0))
+        # Evaluation
+        _score = val_met[args.callbacks['metric_track']]
+
+        log_met.update(trn_met)
+        log_met.update(val_met)
+
+
+        #===================
+        # saving best model
+        #===================
+
+        if ( mode_*_score < mode_*best ):
+            log_met['status'] = f"improved from {best:.4f}!!"
+            best = _score
+            best_predictions = val_pred
+            _name = f"{args.checkpoints_path}{args.name}_fold{fold}_{args.save_name_prefix}best.pth"
+            torch.save(model.state_dict(), _name)
+
+        #===================
+        # prepare train log
+        #===================
+
+        nb_step_per_epoch = args.len_train_loader
+        log_met.update({"LR":scheduler.get_lr()[0]})
+        msg = f"Epoch {epoch+1}/{args.trainer['epochs']}"
+        msg += f'\n{nb_step_per_epoch}/{nb_step_per_epoch}  [==============]'
         
+        elapsed_time = time.time() - start_time
+        epoch_time_s = int(elapsed_time)
+        epoch_time_ms = int( elapsed_time/ nb_step_per_epoch*1000)
+        msg += f" - {epoch_time_s}s {epoch_time_ms}ms/step - "
+
+        for metric_name, metric_value in log_met.items():
+            if metric_name == 'status':
+                msg += f"{metric_name:<3}: {metric_value:<3} - "
+                continue
+            elif metric_name == 'LR':
+                msg += f"{metric_name:<3}: {metric_value:.6f} - "
+                continue
+            msg += f"{metric_name:<3}: {metric_value:.4f} - "
+
+        msg += f"| {str(datetime.timedelta(seconds=epoch_time_s)) + 's':<4}" 
+        train_logger.info(msg)
     torch.cuda.empty_cache()
     return best_predictions, val_label
 

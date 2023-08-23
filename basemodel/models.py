@@ -28,6 +28,7 @@ class CommonLitModelV1(nn.Module):
         add_prompt,
         activation,
         freezing,
+        REINIT_LAYERS,
         init_head,
         config_path=None,
         pooling_params={},
@@ -35,15 +36,10 @@ class CommonLitModelV1(nn.Module):
                         ):
         super().__init__()
         self.config = AutoConfig.from_pretrained(model_name, output_hidden_states=True) if not config_path else torch.load(config_path)
-        self.config.update(
-                                
-                        {
-                            "hidden_dropout":0.0,
-                            "hidden_dropout_prob": 0.0,
-                            "attention_dropout":0.0,
-                            "attention_probs_dropout_prob": 0.0,
-                        }
-                            )
+        self.config.hidden_dropout = 0.
+        self.config.hidden_dropout_prob = 0.
+        self.config.attention_dropout = 0.
+        self.config.attention_probs_dropout_prob = 0.
         self.backbone = AutoModel.from_pretrained(model_name,config=self.config) if not config_path else AutoModel.from_config(self.config)
         if gradient_checkpointing:
             self.backbone.gradient_checkpointing_enable()
@@ -52,6 +48,7 @@ class CommonLitModelV1(nn.Module):
         self.activation = activation
         self.init_head = init_head
         self.add_prompt = add_prompt
+        self.multilfc = multilfc
 
         d_model = self.config.hidden_size
         CrosAttPara['d_model'] = CrosConvPara['d_model'] = CrosenEoderPara['d_model'] =CrosConvPara['c_in'] = d_model
@@ -59,6 +56,7 @@ class CommonLitModelV1(nn.Module):
         CrosenEoderPara['attParameter'].update(CrosAttPara)
         CrosenEoderPara['downConvPara'].update(CrosConvPara)
         self.encoders = PromptAwareEncoder(**CrosenEoderPara)
+        
         self.pooling_params = pooling_params
         self.pooling_params.update({"in_features":self.config.hidden_size,
                                     "out_features":self.config.hidden_size
@@ -82,13 +80,27 @@ class CommonLitModelV1(nn.Module):
         # self.norm = nn.LayerNorm(self.config.hidden_size)
         # self.norm2= nn.LayerNorm(self.config.hidden_size)
         if multilfc:
-            outprojs = [nn.Linear(finaldim, finaldim//2),
-                        # nn.BatchNorm1d(finaldim//2),
-                        nn.ELU(),
-                        nn.Linear(finaldim//2, 64),
-                        nn.ELU(),
-                        nn.Linear(64, 2),
+            outprojs = [
+                
+                nn.Conv1d(finaldim, finaldim//2, 1),
+                nn.BatchNorm1d(finaldim//2),
+                nn.ELU(),
+                nn.Dropout(0.2),
+                nn.Conv1d(finaldim//2, 64, 1),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Conv1d(64, 2, 1)
                          ]
+            # outprojs = [
+            #         nn.Conv1d(finaldim, finaldim//2, 1),
+            #         nn.ReLU(),
+            #         nn.Dropout(0.1),
+            #         nn.Conv1d(finaldim//2, finaldim//4, 1),
+            #         nn.ReLU(),
+            #         nn.Conv1d(finaldim//4, 32, 1),
+            #         nn.ReLU(),
+            #         nn.Conv1d(32, 2, 1)
+            # ]
         else:
             outprojs = [nn.Linear(finaldim, 2) ]
 
@@ -98,13 +110,6 @@ class CommonLitModelV1(nn.Module):
         # result*1.08-2
         #==================
 
-
-        if self.activation=='relu6':
-            outprojs.append(nn.ReLU6())
-        elif self.activation=='leakyrelu':
-            outprojs.append(nn.LeakyReLU(0.2))
-        
-
         self.outproj = nn.Sequential(*outprojs)
 
         if self.init_head:
@@ -112,11 +117,25 @@ class CommonLitModelV1(nn.Module):
 
         if freezing>0:
             top_n_layer_freeze(self.backbone,freezing)
-        
-    def _init_conv_weights(self, m):
-        if isinstance(m, nn.Conv1d):
-            nn.init.kaiming_normal_(m.weight,mode='fan_in',nonlinearity='leaky_relu')
-            
+        # self.encoders.apply(self._kaimin)
+        if REINIT_LAYERS>0:
+            for layer in self.backbone.encoder.layer[-REINIT_LAYERS:]:
+                # for module in layer.modules():
+                    # self._xavier_init(module)
+                layer.apply(self._init_weights)
+
+    def _kaimin(self, module):
+        if isinstance(module, nn.Conv1d):
+            nn.init.kaiming_normal_(module.weight,mode='fan_in',nonlinearity='leaky_relu')
+    def _xavier_init(self, module):
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+                
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
@@ -136,14 +155,13 @@ class CommonLitModelV1(nn.Module):
         prompt_inputs
                      ):
         hidden_states = self.backbone(inputs['input_ids'], inputs['attention_mask'])[0]
-        # print(hidden_states.shape)
-
+        
         if self.add_prompt:
             p_hidden_states = self.backbone(prompt_inputs['input_ids'], prompt_inputs['attention_mask'])[0]
             hidden_states = self.encoders(
                     hidden_states,
                     p_hidden_states,
-                    prompt_inputs['attention_mask']
+                    # prompt_inputs['attention_mask']
                 )
             del p_hidden_states
 
@@ -157,6 +175,7 @@ class CommonLitModelV1(nn.Module):
         else:
             out = self.pool_ly(hidden_states,inputs['smask'])
         del hidden_states
+        
         return out
 
     @autocast()
@@ -164,13 +183,34 @@ class CommonLitModelV1(nn.Module):
         self, 
         inputs,
         prompt_inputs
-                    ):
-        feature = self.feature(inputs, prompt_inputs)
-        if self.activation == 'relu6':
-            feature = self.outproj(feature)*1.08-2
-        elif self.activation == 'sigmoid':
-            feature = self.outproj(feature)*3.25+1.25
+                    ):       
+        hidden_states = self.backbone(inputs['input_ids'], inputs['attention_mask'])[0]
+        if hidden_states.shape[0]==1 and self.multilfc:
+            raise ValueError("BATCH SIZE 1 dose not support multilfc here")
+        if self.add_prompt:
+            p_hidden_states = self.backbone(prompt_inputs['input_ids'], prompt_inputs['attention_mask'])[0]
+            hidden_states = self.encoders(
+                    hidden_states,
+                    p_hidden_states,
+                    # prompt_inputs['attention_mask']
+                )
+            del p_hidden_states
+
+        if self.multilpool:
+            out = torch.cat([
+                self.pool_ly(hidden_states,inputs['smask']),
+                self.spans_pool(hidden_states,inputs['slable']),
+                 ],dim=-1)
+            
+        elif self.span_pool:
+            out = self.spans_pool(hidden_states,inputs['slable'])
         else:
-            feature = self.outproj(feature)
-        return feature
+            out = self.pool_ly(hidden_states,inputs['smask'])
+        if self.multilfc:
+            out = self.outproj(out.unsqueeze(-1)).squeeze(-1)
+        else:
+            out = self.outproj(out)
+        
+        
+        return out
 

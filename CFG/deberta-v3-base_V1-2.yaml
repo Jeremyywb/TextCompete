@@ -5,7 +5,6 @@ seed : 2022
 wandb : false
 device : 0
 
-
 #===========================
 # platform
 #===========================
@@ -19,7 +18,6 @@ platform :
     dpath : /home/featurize/data/
     opath : /home/featurize/work/ka-CESS-COMP/work/output/
 
-
 #===========================
 # data process
 # 
@@ -32,7 +30,7 @@ data:
   prepare:
     prompt_max_len: 512
     add_question: true
-    experiment: false
+    experiment: true
     experiment_rate: 0.5
   dataset:
     pool_question: true
@@ -65,10 +63,9 @@ model:
     multilpool: false
     activation: none
     freezing: 0
-    REINIT_LAYERS: 0
     init_head: true
-    config_path:
-  CrosenEoderPara:
+    config_path: 
+  CrosenEoderPara :
     mask_flag : false
     numcross : 3
     numconv1: 0
@@ -114,7 +111,7 @@ model:
 
 optimizer:
   name : optim.AdamW
-  LLDR: 1
+  LLDR: 0.9
   HeadLR: 0.0001
   params : 
     lr: 0.00002
@@ -122,8 +119,8 @@ optimizer:
     eps: 0.000001
     weight_decay: 0.01
   tparams : 
-    lr: 0.00002
-    eps: 0.000001
+    lr: 0.00005
+    eps: 0.00001
     weight_decay: 0.01
     correct_bias: true
 
@@ -138,7 +135,7 @@ scheduler:
   params : 
     lr_end: 0.0000007
     power: 3
-  warmup: 0.04
+  warmup: 0.0
 
 #===========================
 # train_loader
@@ -158,7 +155,7 @@ train_loader:
 
 
 val_loader:
-  batch_size: 16
+  batch_size: 32
   drop_last: false
   num_workers: 4
   pin_memory: true
@@ -179,13 +176,14 @@ test_loader:
 
 
 trainer:
+  accum_iter: 8
+  print_norm: true
   use_amp: true
   epochs: 4
   sample: true
   gradient_checkpointing: true
   grad_clip: true
-  max_norm: 100
-  accum_iter: 0
+  max_norm: 500
 
 
 #===========================
