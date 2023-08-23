@@ -540,7 +540,7 @@ def train_epoch(args,fold, model,criterion,optimizer,scheduler,train_loader, val
 
 
 
-    return , y_true, y_pred
+    return y_true, y_pred
 
 #=======================
 # one fold
