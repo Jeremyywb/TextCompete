@@ -1,7 +1,7 @@
 competition : CommonLit - Evaluate Student Summaries
 name : deberta-v3-base
 version : CommonLitModelV1
-seed : 2022
+seed : 42
 wandb : false
 device : 0
 
@@ -61,10 +61,10 @@ model:
     span_pool: false
     add_prompt: false
     gradient_checkpointing: true
-    multilfc: true
+    multilfc: false
     multilpool: false
     activation: none
-    freezing: 0
+    freezing: 4
     REINIT_LAYERS: 0
     init_head: true
     config_path:
@@ -80,7 +80,7 @@ model:
     d_model: 762
     d_ff: 762
     n_heads: 8
-    factor: 35
+    factor: 20
     dropout: 0.1
     attType: prob
     activation: relu
@@ -113,8 +113,8 @@ model:
 
 
 optimizer:
-  name : optim.AdamW
-  LLDR: 1
+  name : AdamW
+  LLDR: 0.9
   HeadLR: 0.0001
   params : 
     lr: 0.00002
@@ -134,11 +134,11 @@ optimizer:
 
 
 scheduler:
-  name: poly
+  name: cosine
   params : 
     lr_end: 0.0000007
     power: 3
-  warmup: 0.04
+  warmup: 0.1
 
 #===========================
 # train_loader
@@ -146,7 +146,7 @@ scheduler:
 
 
 train_loader:
-  batch_size: 16
+  batch_size: 1
   drop_last: true
   num_workers: 4
   pin_memory: true
@@ -158,16 +158,16 @@ train_loader:
 
 
 val_loader:
-  batch_size: 16
+  batch_size: 1
   drop_last: false
   num_workers: 4
   pin_memory: true
   shuffle: false
 
 test_loader:
-  batch_size: 16
+  batch_size: 32
   drop_last: false
-  num_workers: 1
+  num_workers: 4
   pin_memory: true
   shuffle: false
 #===========================
@@ -184,7 +184,7 @@ trainer:
   sample: true
   gradient_checkpointing: true
   grad_clip: true
-  max_norm: 100
+  max_norm: 1000
   accum_iter: 0
 
 
@@ -194,6 +194,7 @@ trainer:
 
 
 callbacks:
+  stepwise: true
   save : true
   es: false
   steploss : 
