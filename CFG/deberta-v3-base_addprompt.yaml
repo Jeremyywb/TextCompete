@@ -1,6 +1,5 @@
 competition : CommonLit - Evaluate Student Summaries
-name : deberta_v3_base
-download: microsoft/deberta-v3-base
+name : deberta-v3-base
 version : CommonLitModelV1
 seed : 42
 wandb : false
@@ -36,9 +35,9 @@ data:
     experiment: false
     experiment_rate: 0.5
   dataset:
-    pool_question: true
+    pool_question: false
     target_cols: ['content', 'wording']
-    text_max_len : 512
+    text_max_len : 1024
     prompt_text_max_len: 1024
 
 
@@ -58,8 +57,9 @@ model:
   max_len: 1024
   max_len_eval: 1024
   params:
+    model_name: microsoft/deberta-v3-base
     span_pool: false
-    add_prompt: false
+    add_prompt: true
     gradient_checkpointing: true
     multilfc: false
     multilpool: false
@@ -146,7 +146,7 @@ scheduler:
 
 
 train_loader:
-  batch_size: 1
+  batch_size: 32
   drop_last: true
   num_workers: 4
   pin_memory: true
@@ -158,16 +158,16 @@ train_loader:
 
 
 val_loader:
-  batch_size: 1
+  batch_size: 16
   drop_last: false
   num_workers: 4
   pin_memory: true
   shuffle: false
 
 test_loader:
-  batch_size: 32
+  batch_size: 16
   drop_last: false
-  num_workers: 4
+  num_workers: 1
   pin_memory: true
   shuffle: false
 #===========================
@@ -192,12 +192,10 @@ trainer:
 # callbacks
 #===========================
 
-MAXIMIZE: false
+
 callbacks:
-  stepwise: true
   save : true
   es: false
-  es_strategy: half
   steploss : 
     tqdm : true
     nprint : 3 

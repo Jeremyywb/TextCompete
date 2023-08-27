@@ -1,7 +1,7 @@
 competition : CommonLit - Evaluate Student Summaries
-name : deberta_v3_base
-download: microsoft/deberta-v3-base
+name : deberta-v3-base
 version : CommonLitModelV1
+download: microsoft/deberta-v3-base
 seed : 42
 wandb : false
 device : 0
@@ -32,11 +32,11 @@ platform :
 data:
   prepare:
     prompt_max_len: 512
-    add_question: true
-    experiment: false
+    add_question: false
+    experiment: true
     experiment_rate: 0.5
   dataset:
-    pool_question: true
+    pool_question: false
     target_cols: ['content', 'wording']
     text_max_len : 512
     prompt_text_max_len: 1024
@@ -46,8 +46,8 @@ data:
 # model
 # params:act[relu6,sigmoid]
 #===========================
-selected_folds: [0,1,2,3]
-
+selected_folds: [0]
+UseCusLoss: false
 model:
   loss: CommonLitLoss
   loss_reduction: mean
@@ -114,15 +114,16 @@ model:
 
 optimizer:
   name : AdamW
-  LLDR: 0.9
-  HeadLR: 0.0001
+  LR: 0.00005
+  LLDR: 0.8
+  HeadLR: 0.00005
   params : 
-    lr: 0.00002
+    lr: 0.00005
     betas: [0.9, 0.999]
     eps: 0.000001
     weight_decay: 0.01
   tparams : 
-    lr: 0.00002
+    lr: 0.00005
     eps: 0.000001
     weight_decay: 0.01
     correct_bias: true
@@ -165,46 +166,61 @@ val_loader:
   shuffle: false
 
 test_loader:
-  batch_size: 32
+  batch_size: 16
   drop_last: false
-  num_workers: 4
+  num_workers: 1
   pin_memory: true
   shuffle: false
 #===========================
 # trainer
 # max_norm : 
 #   init : 1000 
+# if unscale init be grater
+# 10000
 #   experiment :10*batch_size 
 #===========================
 
-
+verbose: 0
 trainer:
+  gradient_accumulation_steps: 1
+  use_accumulation: true
   use_amp: true
   epochs: 4
   sample: true
   gradient_checkpointing: true
   grad_clip: true
-  max_norm: 1000
-  accum_iter: 0
+  max_norm: 10000
+
 
 
 #===========================
 # callbacks
 #===========================
 
+# =============================
+# start_eval_step: 0.5
+# eval_steps: 0.2
+# ==divideable gradient_accumulation_steps
+# evaluation_strategy:no|steps|epoch
+# es_strategy: half|one_third|a_quarter|one_fifth|epochs
+# do_inference: false
+# do_train: true
+# =========================================================
+
+start_eval_step: 0.5
+eval_steps: 0.2
+evaluation_strategy: steps
+es_strategy: half
+do_inference: false
+do_train: true
 MAXIMIZE: false
+
 callbacks:
   stepwise: true
   save : true
-  es: false
-  es_strategy: half
   steploss : 
     tqdm : true
     nprint : 3 
-  patience: 0
-  verbose_eval: 1
-  epoch_pct_eval: 0.1
-  epoch_eval_dist: uniforme
   metric_track: val_loss
   mode: min
   top_k: 1

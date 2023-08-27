@@ -1,9 +1,11 @@
 competition : CommonLit - Evaluate Student Summaries
 name : deberta-v3-base
 version : CommonLitModelV1
-seed : 2022
+download: microsoft/deberta-v3-base
+seed : 42
 wandb : false
 device : 0
+
 
 #===========================
 # platform
@@ -17,6 +19,7 @@ platform :
   featurize : 
     dpath : /home/featurize/data/
     opath : /home/featurize/work/ka-CESS-COMP/work/output/
+
 
 #===========================
 # data process
@@ -43,8 +46,8 @@ data:
 # model
 # params:act[relu6,sigmoid]
 #===========================
-selected_folds: [0,1,2,3]
-
+selected_folds: [0]
+UseCusLoss: false
 model:
   loss: CommonLitLoss
   loss_reduction: mean
@@ -55,17 +58,17 @@ model:
   max_len: 1024
   max_len_eval: 1024
   params:
-    model_name: microsoft/deberta-v3-base
     span_pool: false
     add_prompt: false
     gradient_checkpointing: true
-    multilfc: true
+    multilfc: false
     multilpool: false
     activation: none
-    freezing: 0
+    freezing: 4
+    REINIT_LAYERS: 0
     init_head: true
-    config_path: 
-  CrosenEoderPara :
+    config_path:
+  CrosenEoderPara:
     mask_flag : false
     numcross : 3
     numconv1: 0
@@ -77,7 +80,7 @@ model:
     d_model: 762
     d_ff: 762
     n_heads: 8
-    factor: 35
+    factor: 20
     dropout: 0.1
     attType: prob
     activation: relu
@@ -110,17 +113,18 @@ model:
 
 
 optimizer:
-  name : optim.AdamW
-  LLDR: 0.9
-  HeadLR: 0.0001
+  name : AdamW
+  LR: 0.00005
+  LLDR: 0.8
+  HeadLR: 0.00005
   params : 
-    lr: 0.00002
+    lr: 0.00005
     betas: [0.9, 0.999]
     eps: 0.000001
     weight_decay: 0.01
   tparams : 
     lr: 0.00005
-    eps: 0.00001
+    eps: 0.000001
     weight_decay: 0.01
     correct_bias: true
 
@@ -131,11 +135,11 @@ optimizer:
 
 
 scheduler:
-  name: poly
+  name: cosine
   params : 
     lr_end: 0.0000007
     power: 3
-  warmup: 0.0
+  warmup: 0.1
 
 #===========================
 # train_loader
@@ -143,7 +147,7 @@ scheduler:
 
 
 train_loader:
-  batch_size: 16
+  batch_size: 1
   drop_last: true
   num_workers: 4
   pin_memory: true
@@ -155,7 +159,7 @@ train_loader:
 
 
 val_loader:
-  batch_size: 32
+  batch_size: 1
   drop_last: false
   num_workers: 4
   pin_memory: true
@@ -171,36 +175,52 @@ test_loader:
 # trainer
 # max_norm : 
 #   init : 1000 
+# if unscale init be grater
+# 10000
 #   experiment :10*batch_size 
 #===========================
 
-
+verbose: 0
 trainer:
-  accum_iter: 8
-  print_norm: true
+  gradient_accumulation_steps: 1
+  use_accumulation: true
   use_amp: true
   epochs: 4
   sample: true
   gradient_checkpointing: true
   grad_clip: true
-  max_norm: 500
+  max_norm: 10000
+
 
 
 #===========================
 # callbacks
 #===========================
 
+# =============================
+# start_eval_step: 0.5
+# eval_steps: 0.2
+# ==divideable gradient_accumulation_steps
+# evaluation_strategy:no|steps|epoch
+# es_strategy: half|one_third|a_quarter|one_fifth|epochs
+# do_inference: false
+# do_train: true
+# =========================================================
+
+start_eval_step: 0.5
+eval_steps: 0.2
+evaluation_strategy: steps
+es_strategy: half
+do_inference: false
+do_train: true
+MAXIMIZE: false
 
 callbacks:
+  stepwise: true
   save : true
-  es: false
   steploss : 
     tqdm : true
     nprint : 3 
-  patience: 0
-  verbose_eval: 1
-  epoch_pct_eval: 0.1
-  epoch_eval_dist: uniforme
   metric_track: val_loss
   mode: min
   top_k: 1

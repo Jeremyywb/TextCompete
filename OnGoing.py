@@ -18,47 +18,47 @@ import torch.nn as nn
 from torch.cuda import amp
 import torch.optim as optim
 import torch.nn.functional as F
+import datetime
+from torch.utils.data import DataLoader
 from transformers import AutoTokenizer,AutoConfig
 from transformers import get_linear_schedule_with_warmup,get_cosine_schedule_with_warmup,get_polynomial_decay_schedule_with_warmup
 from sklearn.metrics import mean_squared_error
 from tqdm.auto import tqdm
 import torch.utils.checkpoint
-
+from enum import Enum, unique
 
 from TextCompete.data_utils.dataset import batch_to_device, collate
 from TextCompete.data_utils.dataset import get_loader
 from TextCompete.metrics_loss.loss_function import RMSELoss,get_score,CommonLitLoss
 from TextCompete.metrics_loss.callbacks import (
-     EarlyStopping, History, get_logger
-    )
-from TextCompete.metrics_loss.utils import (
-     IntervalStrategy, AverageMeter
+     EarlyStopping, History, AverageMeter
     )
 from TextCompete.basemodel.models import (
      load_from_pretrained, CommonLitModelV1
     )
 
+# ==========================
+# model evaluate strategy
+@unique
+class IntervalStrategy(Enum):
+    NO = "no"
+    STEPS = "steps"
+    EPOCH = "epoch"
+# ==========================
 
 
-# ==================
-# new configs
-# UseCusLoss: false
-# gradient_accumulation_steps*train_batch = 32
-# trainer:
-#     gradient_accumulation_steps
-# use_accumulation: true
 
-# optimizer: LR
+# ==========================
+# model evaluate strategy
+@unique
+class ESStrategy(Enum):
+    HALF = "half"
+    ONE_THIRD = "one_third"
+    A_QUARTER = "a_quarter"
+    ONE_FIFTH = "one_fifth"
+    EPOCHS = 'epochs'
+# ==========================
 
-# beside calls
-# start_eval_step: 0.5
-# eval_steps: 0.2
-# ==divideable gradient_accumulation_steps
-# evaluation_strategy:no|steps|epoch
-# es_strategy: half|one_third|a_quarter|one_fifth|epochs
-# do_inference: false
-# do_train: true
-# ==============================================================
 
 
 # ===================
@@ -160,13 +160,11 @@ def get_optim_scheduler(model,args):
 
 # ==================
 # new configs
-# gradient_accumulation_steps*train_batch = 32
+
 # gradient_accumulation_steps
-# use_accumulation: true
-# start_eval_step: 0.5
-# eval_steps: 0.2
-# optimizer: LR
-# ==divideable gradient_accumulation_steps
+# use_accumulation
+# start_eval_step:0.5
+# eval_steps:0.1==divideable gradient_accumulation_steps
 # ==============================================================
 
 
@@ -183,11 +181,11 @@ def _append(_this, _new):
 
 # ==================================================================================
 # train for one folder
-def train(args, model, LOGGER, criterion,device, tokenizer, trainloader, optimizer, lr_scheduler, evalloader=None):
+def train(args, model, device, tokenizer, trainloader, optimizer, lr_scheduler, evalloader=None):
     HISTORY = History(
         args,
-        LOGGER = LOGGER,
-        verbose = args.verbose
+        LogFileName = 'train',
+        verbose = 1
     )
 
     (
@@ -202,8 +200,7 @@ def train(args, model, LOGGER, criterion,device, tokenizer, trainloader, optimiz
         scaler = amp.GradScaler(enabled=True)#apex
     optimizer.zero_grad()
     model.zero_grad()
-    all_best_predictions = None
-    for _ in range(HISTORY._epochs):
+    for _ in range(History._epochs):
         gradient_accumulation_steps = HISTORY.on_epoch_begin()
         HISTORY._reset_to_next_eval()
         model.train()
@@ -239,11 +236,10 @@ def train(args, model, LOGGER, criterion,device, tokenizer, trainloader, optimiz
                 scaler.scale(loss).backward()
             else:
                 loss.backward()
-            del batch, pred
+            del batch, pred, target
 
             status_bar(step, num_train_steps)
             HISTORY.on_step_end(loss, target)
-            del target
 
             if HISTORY.SINCE_last_accumulated_steps == gradient_accumulation_steps:
 
@@ -255,7 +251,7 @@ def train(args, model, LOGGER, criterion,device, tokenizer, trainloader, optimiz
 
                 #=========================================================
                 # check for each clip step LR
-                accumulation_step_msg = {"accum-LR":lr_scheduler.get_lr()[0]}
+                accumulation_step_msg = {"accum-LR":scheduler.get_lr()[0]}
                 #=========================================================
 
                 if args.trainer['use_amp']:
@@ -275,7 +271,7 @@ def train(args, model, LOGGER, criterion,device, tokenizer, trainloader, optimiz
                     optimizer.step()
                 optimizer.zero_grad()
                 model.zero_grad()
-                lr_scheduler.step()
+                scheduler.step()
                 HISTORY.on_accumulation_end(accumulation_step_msg)
 
                 #==============================================================
@@ -314,15 +310,10 @@ def train(args, model, LOGGER, criterion,device, tokenizer, trainloader, optimiz
                     msg.update(G_train_metrics)
                     this_eval_targets, this_eval_preditions = None,None
 
-                    
-                    HISTORY.on_next_eval(step, msg)
                     EARLY_STOPPING(_score)
-                    if EARLY_STOPPING._improved:
-                        all_best_predictions = all_predictions
-                    del all_predictions
+                    HISTORY.on_next_eval(step, msg)
                     HISTORY._reset_to_next_eval()
                     HISTORY._save_checkpoint(model, EARLY_STOPPING)
-
                 #==================================================================================
 
             if EARLY_STOPPING.should_training_stop:
@@ -344,29 +335,15 @@ def train(args, model, LOGGER, criterion,device, tokenizer, trainloader, optimiz
             #=============================================================================================
             msg.update(G_train_metrics)
             
-            
-            HISTORY.on_next_eval(step, msg)
             EARLY_STOPPING(_score)
-            if EARLY_STOPPING._improved:
-                all_best_predictions = all_predictions
-            del all_predictions
+            HISTORY.on_next_eval(step, msg)
             HISTORY._reset_to_next_eval()
             HISTORY._save_checkpoint(model, EARLY_STOPPING)
             
 
         if EARLY_STOPPING.should_training_stop:
             break
-    msg = (
-        '''\n\n#========================================================================='''
-        '''\n# S U M M A R Y '''
-        '''\n FOLD {0}| SCORE: {1:.4f} - Completed Steps: {2}  '''
-        '''\n#=========================================================================\n\n'''
-    .format(args.fold, EARLY_STOPPING._best_score ,HISTORY.completed_steps  )
-    )
-    print(msg)
-    LOGGER.info(msg)
-    
-    return all_references, all_best_predictions
+    return all_references, all_predictions
 
 # ==================================================================================
 # evaluate val dataloader
@@ -423,9 +400,9 @@ def gradhook(name):
     return hookfn
 # ======================================================================
 
-def kfold(args,summary_df, prompt_df):
+def finetune(args,summary_df, prompt_df):
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
-    
+    print("STARTING>>>")
 
     #=================================
     # set weights if custom loss used
@@ -450,15 +427,8 @@ def kfold(args,summary_df, prompt_df):
         raise ValueError('args UseCusLoss attr not seted')
 
     oof_references, oof_preditions = None, None
-    LOGGER =  get_logger(args,'train')
-    lines = "#==============================================="
-    msg = "\n\n==========================================>>>>>>STARTING>>>>>>==========================================\n\n"
-    LOGGER.info(msg)
-    print(msg)
+
     for fold in args.selected_folds:
-        msg = "\n\n{0}\nFOLD {1}/{2}\n{3}".format(lines,fold+1,len(args.selected_folds), lines )
-        LOGGER.info(msg)
-        print(msg)
         args.fold = fold
         tokenizer, model = load_from_pretrained(args)
         model = model.to(device)
@@ -474,9 +444,7 @@ def kfold(args,summary_df, prompt_df):
         optimizer, lr_scheduler = get_optim_scheduler(model,args)
 
         val_references, val_predictions = train(
-            args, model, LOGGER, criterion, device, tokenizer, 
-            trainloader, optimizer, lr_scheduler, evalloader)
-        
+            args, model, device, tokenizer, trainloader, optimizer, lr_scheduler, evalloader)
         oof_references = _append(oof_references,val_references)
         oof_preditions = _append(oof_preditions,val_predictions)
     
@@ -502,7 +470,8 @@ def kfold(args,summary_df, prompt_df):
     for _name, _value in ver_log_met.items():
         ver_msg+= f"# {_name}: {_value}"
     ver_msg += "\n#============================================\n\n"
-    return ver_msg,ver_log_met
+    return ver_msg
 
 
 
+    
