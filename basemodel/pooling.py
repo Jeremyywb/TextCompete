@@ -2,6 +2,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
+import gc
+
+class MeanPoolingA(nn.Module):
+    def __init__(self):
+        super(MeanPoolingA, self).__init__()
+
+    def forward(self, last_hidden_state, attention_mask):
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+        sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
+        sum_mask = input_mask_expanded.sum(1)
+        sum_mask = torch.clamp(sum_mask, min=1e-9)
+        mean_embeddings = sum_embeddings / sum_mask
+        del sum_embeddings,input_mask_expanded
+        return mean_embeddings
 
 
 class MeanPooling(nn.Module):
@@ -15,8 +29,17 @@ class MeanPooling(nn.Module):
         sum_mask = torch.clamp(sum_mask, min=1e-9)
         mean_embeddings = sum_embeddings / sum_mask
         # mean_embeddings.register_hook(lambda t: print(f'''===========================\n#out = self.pool_ly(hidden_states,inputs['smask']):\n {t}'''))
-        mean_embeddings = torch.clamp(mean_embeddings, max=1e8)
+        mean_embeddings = torch.clamp(mean_embeddings, max=1e6)
         del sum_embeddings,input_mask_expanded
+
+
+        # input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+        # sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
+        # sum_mask = input_mask_expanded.sum(1)
+        # sum_mask = torch.clamp(sum_mask, min=1e-9)
+        # mean_embeddings = sum_embeddings / sum_mask
+        # del sum_embeddings,input_mask_expanded
+        # return mean_embeddings
         # input_mask_expanded = attention_mask/attention_mask.sum(1).unsqueeze(1)
         # input_mask_expanded = input_mask_expanded.unsqueeze(-1).expand(last_hidden_state.size()).float()
         # mean_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
@@ -45,7 +68,7 @@ class MeanMax(nn.Module):
         max_pooler =  self.max_pooler( last_hidden_state ,attention_mask )
         out = torch.concat([mean_pooler ,max_pooler ] , 1)
         return out
-    
+  
 class GeMText(nn.Module):
     def __init__(self, dim = 1, p=3, eps=1e-6):
         super(GeMText, self).__init__()
@@ -179,22 +202,23 @@ class NLPPooling(nn.Module):
 
     def forward(self, last_hidden_state, attention_mask_or_labelid):
 
-        if self.pooling_name in ['MeanPooling','MaxPooling','MinPooling']:
+        if self.pooling_name in ['MeanPoolingA','MeanPooling','MaxPooling','MinPooling']:
             # Pooling between cls and sep / cls and sep embedding are not included
             # last_hidden_state = self.pooler(last_hidden_state[:,1:-1,:],attention_mask[:,1:-1])
-            last_hidden_state = self.pooler(last_hidden_state,attention_mask_or_labelid)
+            output = self.pooler(last_hidden_state,attention_mask_or_labelid)
         elif self.pooling_name=="CLS":
             # Use only cls embedding
-            last_hidden_state = last_hidden_state[:,0,:]
+            output = last_hidden_state[:,0,:]
         elif self.pooling_name=="GeMText":
             # Use Gem Pooling on all tokens
-            last_hidden_state = self.pooler(last_hidden_state,attention_mask_or_labelid)
+            output = self.pooler(last_hidden_state,attention_mask_or_labelid)
         
         elif self.pooling_name=="AttentionHead":
             # sentance pooling ,exclueded cls,sep,",","!","."
-            last_hidden_state = self.pooler(last_hidden_state,attention_mask_or_labelid)
+            output = self.pooler(last_hidden_state,attention_mask_or_labelid)
         else:
             # No pooling
-            last_hidden_state = last_hidden_state
+            output = last_hidden_state
+        gc.collect()
             # print(f"{self.pooling_name} not implemented")
-        return last_hidden_state
+        return output

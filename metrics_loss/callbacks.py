@@ -143,12 +143,26 @@ class History(object):
 
         if self.args.es_strategy == ESStrategy.ONE_FIFTH.value:
             patience = math.ceil(self.num_eval_epoch*1/5)
+        
+        _head = '=========================================='
+        _line = '__________________________________________'
         msg = (
-            f"***NUM OF TRAIN STEPS IN EPCOH : {self.num_train_steps}***\n"
-            f"***NUM OF EVAL STEPS IN EPCOH : {self.num_eval_epoch}***\n"
-            f"***EVAL STARTED AT STEP : {self.start_eval_step }***\n"
-            f"***EVAL PERFORMED EVERY N-STEPS : {self.eval_steps }***\n"
-            f"***PATIENCE {patience} SET OF ESStrategy {self.args.es_strategy }***\n")
+
+             "      TYPE            STEPS\n"
+            f'{_head}\n'
+            f"     TRAIN             {self.num_train_steps}\n"
+            f'{_line}\n'
+            f"    NUMEVAL            {self.num_eval_epoch}\n"
+            f'{_line}\n'
+            f"   STARTEVAL           {self.start_eval_step }\n"
+            f'{_line}\n'
+            f"EVAL-EVERY-N-STEPS     {self.eval_steps }\n"
+            f'{_line}\n'
+            f"  PATIENCE-STEPS       {patience} \n"
+            f'{_line}\n'
+            f"   ESStrategy          {self.args.es_strategy }\n"
+            f'{_line}\n'
+        )
         self.logger.info(msg )
         print(msg)
 
@@ -164,11 +178,15 @@ class History(object):
         EARLY_STOPPING
     ):
         if EARLY_STOPPING._improved:
-            msg = f"***Saving {self.args.foldModel}, best score:{EARLY_STOPPING._best_score} ***"
+            if self.args.trainer['HEADTrain']:
+                torch.save(model.HEAD.state_dict(),self.args.headModel)
+                msg = f"***Saving {self.args.headModel.split('/')[-1]}, best score:{EARLY_STOPPING._best_score} ***"
+            else:
+                torch.save(model.state_dict(),self.args.foldModel)
+                msg = f"***Saving {self.args.foldModel.split('/')[-1]}, best score:{EARLY_STOPPING._best_score} ***"
+                
             print(msg)
             self.logger.info( msg  )
-            print(msg)
-            torch.save(model.state_dict(),self.args.foldModel)
 
     def on_train_begin(
         self,
@@ -201,7 +219,7 @@ class History(object):
         self.SINCE_last_accumulated_steps = 0
         self.epoch += 1
 
-        self.eval_interval_grad_norms = {"accum-LR":[], "GradNorm":[]}
+        self.eval_interval_grad_norms = {"accum-LR":[], "GradNorm":[], "PreGradNorm":[]}
         self.gradient_accumulation_steps = (
             self.args.trainer['gradient_accumulation_steps']
             if self.args.trainer['use_accumulation']
@@ -214,10 +232,11 @@ class History(object):
 
 
     def _reset_to_next_eval(self):
+        print(f"\nEpoch {self.epoch}/{self._epochs}")
         self.toNex_start_time = time.time()
         self.eval_inner_losses.reset()
         self.since_last_evaled_step = 0
-        self.eval_interval_grad_norms = {"accum-LR":[], "GradNorm":[]}
+        self.eval_interval_grad_norms = {"accum-LR":[], "GradNorm":[], "PreGradNorm":[]}
 
     def on_next_eval(self,step,msg):
         self.accum_LR += self.eval_interval_grad_norms['accum-LR']
@@ -225,37 +244,56 @@ class History(object):
         if self._verbose==0:
             return
         if self.eval_interval_grad_norms['GradNorm']:
-            stack_to_np = torch.stack(self.eval_interval_grad_norms['GradNorm']).cpu().numpy()
-            MaxGrad = np.round(stack_to_np.max(),4) 
-            AvgGrad = np.round(stack_to_np.mean(),4) 
+            stack_to_np = torch.tensor(self.eval_interval_grad_norms['GradNorm'])
+            stack_to_np2 = torch.tensor(self.eval_interval_grad_norms['PreGradNorm'])
+            
+            if torch.logical_or(stack_to_np.isnan().any(),stack_to_np.isinf().any()):
+                MaxGrad = "None"
+                AvgGrad = "None"
+                PreAvgGrad = "None"
+            else:
+                MaxGrad = int(stack_to_np.cpu().numpy().max())
+                AvgGrad = int(stack_to_np.cpu().numpy().mean()) 
+                PreAvgGrad = int(stack_to_np2.cpu().numpy().max())                
         else:
             MaxGrad = 'no'
             AvgGrad = 'no'
+            PreAvgGrad = 'no'
 
         interval_msg = (
-                '\n\n Step {0}/{1}[0]\n'
-                '      [train][==============] '
-                'Elapsed {remain:s} '
-                ' - Loss: {loss.val:.4f}({loss.avg:.4f}) '
-                ' - MaxGrad: {MaxGrad:.4f}'
-                ' - AvgGrad: {AvgGrad:.4f}'
-                ' - LR: {lr:.8f}  '
-                .format(step+1, self.num_train_steps,
+                # '{0}/{1} [==============]'
+                ' {remain:s} '
+                ' - loss: {loss.val:.4f} '
+                ' - maxgrad: {MaxGrad}'
+                ' - avggrad: {AvgGrad}'
+                ' - pregrad: {PreAvgGrad}'
+                ' - lr: {lr:.2f}e-5'
+                .format(
+                      # step+1, self.num_train_steps,
                       remain=timeSince(self.toNex_start_time, float(step+1)/self.num_train_steps),
                       loss=self.eval_inner_losses,
                       MaxGrad=MaxGrad,
                       AvgGrad=AvgGrad,
-                      lr=LR)
+                      PreAvgGrad=PreAvgGrad,
+                      lr=LR*10000)
             )
-        print(f"\nEPOCH {self.epoch}/{self._epochs}")
-        self.logger.info(f"\nEPOCH {self.epoch}/{self._epochs}")
+        
+        self.logger.info(f"\nEpoch {self.epoch}/{self._epochs}")
         self.logger.info(interval_msg)
         print(interval_msg)
-        msgs = []
+
+        # ====================================================
+        # proceding line
+        j = (step + 1) / self.num_train_steps
+        mid = ">" if step < self.num_train_steps-1 else '='
+        proced = int(30*j)
+        line = '='*(proced-1)+mid+ '.'*( 30-proced )
+        spaces = " " * (len(str(self.num_train_steps)) - len(str(step + 1)))
+        # ====================================================
+
         eval_step_msg = (
-                ' STEP {0}/{1}\n'
-                '    [eval][==============]'
-                .format(step+1, self.num_train_steps))
+                '{0}/{1}{2} [{3}]'
+                .format(step+1, self.num_train_steps,spaces,line))
         start_value = None
         for metric_name,metric_value in msg.items():
             if start_value is None:
@@ -263,7 +301,7 @@ class History(object):
                 eval_step_msg += f' {metric_name}: {metric_value:.4f}'
             elif start_value != metric_name[0].upper():
                 start_value = metric_name[0].upper()
-                eval_step_msg += f'\n                          {metric_name}: {metric_value:.4f}'
+                eval_step_msg += f'\n{step+1}/{self.num_train_steps}{spaces} [{line}] {metric_name}: {metric_value:.4f}'
             else:
                 eval_step_msg += f' - {metric_name}: {metric_value:.4f}'
         self.logger.info(eval_step_msg)
@@ -273,9 +311,11 @@ class History(object):
 
     def on_accumulation_end(self,accumulation_step_msg):
         self.SINCE_last_accumulated_steps = 0
+        self.eval_interval_grad_norms['accum-LR'].append(accumulation_step_msg['accum-LR'])
+        self.eval_interval_grad_norms['PreGradNorm'].append(accumulation_step_msg['PreGradNorm'])
         if 'GradNorm' in accumulation_step_msg:
-            for k,v in accumulation_step_msg.items():
-                self.eval_interval_grad_norms[k].append(v)
+            self.eval_interval_grad_norms['GradNorm'].append(accumulation_step_msg['GradNorm'])
+                
         
         
     def on_epoch_end(
@@ -306,7 +346,3 @@ class History(object):
         batch_size = target.size(0)
         self.eval_inner_losses.update(loss.item(), batch_size)
         #=====================================================
-
-# ================================================================================
-
-

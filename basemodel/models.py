@@ -2,42 +2,62 @@
 #  Model
 # =============================
 
+
 import torch
 import torch.nn as nn
 from transformers import AutoConfig, AutoModel,AutoTokenizer
 import torch.utils.checkpoint
+from torch.cuda.amp import autocast
 import torch.nn.functional as F
 from TextCompete.basemodel.pooling import NLPPooling
 from W_Informer.models.domian_encoder import PromptAwareEncoder,ConvPoolLayer
+from TextCompete.basemodel.heads import *
+import TextCompete.metrics_loss.loss_function as mdn
 import os
 
+HEAD_MAPPER = {
+    "conv1d_01":CONVHEAD1,
+    'dense_01':DENSEHEAD1,
+    'uniform_conv1d_01':UniFormCONVHEAD1,
+    'uniform_dense_01':UniFormDENSEHEAD1,
+    'binssoftmax_01':BINSSOFTMAX,
+    'bndense_01':BNDENSEHEAD1,
+}
+
 def top_n_layer_freeze(module,n):
+    # for _name,p in module.embeddings.named_parameters():
+    #     p.requires_grad = False
     for i in range(0,n,1):
-        for n,p in module.encoder.layer[i].named_parameters():
+        for _name,p in module.encoder.layer[i].named_parameters():
             p.requires_grad = False
 
 
 class CommonLitModelV1(nn.Module):
     def __init__(
         self,
+        # use_mdn,
         CrosAttPara,
         CrosConvPara,
         CrosenEoderPara,
         span_pool,
         gradient_checkpointing,
-        multilfc,
+        # multilfc,
         multilpool,
         add_prompt,
         activation,
         freezing,
         REINIT_LAYERS,
         init_head,
+        output_dim,
+        headname,
         config_path=None,
         pooling_params={},
         spans_pooling_params = {},
                         ):
         super().__init__()
 
+        # ============================================
+        # backbone setting
         self.config = torch.load(config_path)
         self.config.hidden_dropout = 0.
         self.config.hidden_dropout_prob = 0.
@@ -46,20 +66,30 @@ class CommonLitModelV1(nn.Module):
         self.backbone = AutoModel.from_config(self.config)
         if gradient_checkpointing:
             self.backbone.gradient_checkpointing_enable()
+        # ============================================
+
+        # ============================================
+        # init para
         self.span_pool = span_pool
         self.multilpool = multilpool
         self.activation = activation
         self.init_head = init_head
         self.add_prompt = add_prompt
-        self.multilfc = multilfc
 
         d_model = self.config.hidden_size
         CrosAttPara['d_model'] = CrosConvPara['d_model'] = CrosenEoderPara['d_model'] =CrosConvPara['c_in'] = d_model
         CrosAttPara['d_ff'] = CrosAttPara['d_model']*4
         CrosenEoderPara['attParameter'].update(CrosAttPara)
         CrosenEoderPara['downConvPara'].update(CrosConvPara)
-        self.encoders = PromptAwareEncoder(**CrosenEoderPara)
-        
+        # ============================================
+
+        # ============================================
+        # heads..prompt encoder
+        if self.add_prompt:
+            self.encoders = PromptAwareEncoder(**CrosenEoderPara)
+
+        # ============================================
+        # heads..pooling
         self.pooling_params = pooling_params
         self.pooling_params.update({"in_features":self.config.hidden_size,
                                     "out_features":self.config.hidden_size
@@ -80,33 +110,9 @@ class CommonLitModelV1(nn.Module):
         else:
             finaldim = self.pooling_params['out_features']
 
-        # self.norm = nn.LayerNorm(self.config.hidden_size)
-        # self.norm2= nn.LayerNorm(self.config.hidden_size)
-        if multilfc:
-            outprojs = [
-                
-                nn.Conv1d(finaldim, finaldim//2, 1),
-                nn.BatchNorm1d(finaldim//2),
-                nn.ELU(),
-                nn.Dropout(0.2),
-                nn.Conv1d(finaldim//2, 64, 1),
-                nn.ReLU(),
-                nn.Dropout(0.1),
-                nn.Conv1d(64, 2, 1)
-                         ]
-        else:
-            outprojs = [nn.Linear(finaldim, 2) ]
-
-
-        #==================
-        # if add relu
-        # result*1.08-2
-        #==================
-
-        self.outproj = nn.Sequential(*outprojs)
-
-        if self.init_head:
-            self.outproj.apply(self._init_weights)
+        # ============================================
+        # heads..HEAD proj
+        self.HEAD = HEAD_MAPPER[headname]( finaldim,output_dim, init_head, self.config )
 
         if freezing>0:
             top_n_layer_freeze(self.backbone,freezing)
@@ -117,46 +123,25 @@ class CommonLitModelV1(nn.Module):
                     # self._xavier_init(module)
                 layer.apply(self._init_weights)
 
-    def _kaimin(self, module):
-        if isinstance(module, nn.Conv1d):
-            nn.init.kaiming_normal_(module.weight,mode='fan_in',nonlinearity='leaky_relu')
-
-    def _xavier_init(self, module):
-        if isinstance(module, (nn.Linear, nn.Embedding)):
-            nn.init.xavier_uniform_(module.weight)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-                
-    def _init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-
+    @autocast()
     def forward(
         self, 
         summary_input_ids,
         summary_attention_mask,
+        summary_token_type_ids,
         summary_slable=None,
         summary_smask=None,
         prompt_input_ids=None,
         prompt_attention_mask=None
                             ):
 
-        hidden_states = self.backbone(summary_input_ids, summary_attention_mask)[0]
-        del summary_input_ids,summary_attention_mask
-        if hidden_states.shape[0]==1 and self.multilfc:
-            raise ValueError("BATCH SIZE 1 dose not support multilfc here")
+        hidden_states = self.backbone(
+            input_ids=summary_input_ids, 
+            attention_mask = summary_attention_mask,
+            token_type_ids = summary_token_type_ids 
+            )[0]
+
+        del summary_input_ids,summary_attention_mask,summary_token_type_ids
         if self.add_prompt:
             p_hidden_states = self.backbone(prompt_input_ids, prompt_attention_mask)[0]
             hidden_states = self.encoders(
@@ -167,24 +152,24 @@ class CommonLitModelV1(nn.Module):
             del p_hidden_states,prompt_attention_mask,prompt_input_ids
 
         if self.multilpool:
-            out = torch.cat([
+            poolout = torch.cat([
                 self.pool_ly(hidden_states,summary_smask),
                 self.spans_pool(hidden_states,summary_slable),
                  ],dim=-1)
             del summary_slable,summary_smask
         elif self.span_pool:
-            out = self.spans_pool(hidden_states,summary_slable)
+            poolout = self.spans_pool(hidden_states,summary_slable)
             del summary_slable
         else:
-            out = self.pool_ly(hidden_states,summary_smask)
+            poolout = self.pool_ly(hidden_states,summary_smask)
             del summary_smask
         del hidden_states
-        if self.multilfc:
-            out = self.outproj(out.unsqueeze(-1)).squeeze(-1)
-        else:
-            out = self.outproj(out)
-        
+
+        out = self.HEAD( poolout )
+        del poolout
+
         return out
+
 
 
 
@@ -208,10 +193,13 @@ def load_from_pretrained(args):
     if args.do_train and args.do_inference:
         print("Can't do train and Inference at a time")
         raise ValueError('args do_train and do_inference ValueError')
-
+    if args.trainer['HEADTrain']:
+        args.model['params']['freezing'] = 12
     args.config_path = f"{args.modelRootPath}/{args.name}_config.pth"
     args.tokenizer_path = f"{args.modelRootPath}/{args.name}_tokenizer"
     args.foldModel = f"{args.modelRootPath}/{args.name}_{args.save_name_prefix}__fold{args.fold}_best.pth"
+    headname = args.model['params']['headname']
+    args.headModel = f"{args.modelRootPath}/{args.name}_{args.save_name_prefix}__fold{args.fold}_{headname}best.pth"
 
     if (not os.path.exists(args.config_path)
         and args.do_inference):
@@ -249,4 +237,6 @@ def download_configs(args):
     torch.save(config, args.config_path)
 
 # ==================================================================================
+
+
 
