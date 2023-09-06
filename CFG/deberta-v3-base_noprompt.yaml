@@ -45,12 +45,11 @@ data:
 
 
 
-selected_folds: [0]
+selected_folds: [2]
 
 #===========================
 # model
 transform_target: false
-multiloss: true
 split_n_components: 1
 
 #===========================
@@ -111,6 +110,7 @@ model:
     REINIT_LAYERS: 0
     init_head: true
     headname: bndense_01
+    output_dim: 2
     config_path:
   CrosenEoderPara:
     mask_flag : false

@@ -232,7 +232,7 @@ def get_loader( args, tokenizer,summary_df,prompt_df, fold=None ):
             args.train_loader['shuffle'] = False
             train_loader = DataLoader(train_dataset,sampler=RandomSampler(train_dataset) ,**args.train_loader)
             DEBUGMSG += "\ntrain_loader: RandomSampler\n"
-        DEBUGMSG += DEBUGMSG += f"\n{str(args.train_loader)}\n{DEBUGLINE}"
+        DEBUGMSG = f"\n{str(args.train_loader)}\n{DEBUGLINE}"
         # =====================================================================
 
         args.len_train_loader = len(train_loader)

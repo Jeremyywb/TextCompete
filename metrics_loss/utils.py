@@ -280,7 +280,8 @@ def calcu_grad_norm(
 
 
 class ModelSummary:
-    def __init__(self, model, input_size):
+    def __init__(self, model, input_size,device):
+        self.device = device
         self.model = model
         self.input_size = input_size
         self.hooks = []
@@ -291,7 +292,7 @@ class ModelSummary:
         input_shapes = [f"{list(i.shape)}" for i in input]
         input_shapes = ', '.join(input_shapes)
         num_params = sum(p.numel() for p in module.parameters())
-        output_shape = list(output.shape)
+        output_shape = list(output[0].shape)
         self.print_row(name, module.__class__.__name__, input_shapes, output_shape, num_params)
 
     def print_row(self, name, layer, input_shapes, output_shape, num_params):
@@ -315,7 +316,7 @@ class ModelSummary:
             self.hooks.append(hook)
 
         with torch.no_grad():
-            input_tensor = [torch.randint(1000,size).to(device) if size is not None else None for size in self.input_size]
+            input_tensor = [torch.randint(1000,size).to(self.device) if size is not None else None for size in self.input_size]
             self.model(*input_tensor)
         total_params = 0  # 用于统计总参数数量
         trainable_params = 0  # 用于统计可训练参数数量

@@ -13,12 +13,13 @@ import json
 from torch import autocast
 from pathlib import Path
 from transformers import AdamW as transformersAdamW
+from torch.optim  import AdamW as torchAdamW
 import torch 
 import torch.nn as nn
 from torch.cuda import amp
 import torch.optim as optim
-import optim.lr_scheduler.OneCycleLR as OneCycleLR
-import torch.optim.AdamW as torchAdamW
+from torch.optim.lr_scheduler import OneCycleLR
+
 import torch.nn.functional as F
 from transformers import AutoTokenizer,AutoConfig
 from transformers import get_linear_schedule_with_warmup,get_cosine_schedule_with_warmup,get_polynomial_decay_schedule_with_warmup
@@ -162,18 +163,18 @@ def get_optim_scheduler(model,args):
     schedPara = args.scheduler[schedName]
     if schedName != 'onecycle':
         schedPara.update(
-            {"num_warmup_steps":warmup_lr_steps
+            {"num_warmup_steps":warmup_lr_steps,
             "num_training_steps":total_lr_steps}
             )
     else:
         schedPara.update(
-            {"epochs":args.trainer['epochs']
+            {"epochs":args.trainer['epochs'],
             "steps_per_epoch":num_train_steps}
             )
 
     _LR = args.optimizer[OptimName]['lr']
     LLDR = args.optimizer['LLDR']
-    lr_weight_decay = args.optimizer[OptimName]['lr']['weight_decay']
+    lr_weight_decay = args.optimizer[OptimName]['weight_decay']
     num_freeze_layer = args.model['params']['freezing']
 
     no_decay =  ["bias", "LayerNorm.bias", "LayerNorm.weight"]
@@ -208,20 +209,20 @@ def get_optim_scheduler(model,args):
                 { "params": [p for n, p in layer.named_parameters() if namefiler(n)],
                   "weight_decay": 0.0, "lr": _LR*LLDR**i}
                  ]
-                if i==0:
-                    DEBUGMSG  += "\n=================================\n"
-                    DEBUGMSG += "    LLDR-params-not namefiler    "
-                    tmp = _LR*LLDR**i
-                    DEBUGMSG += "\n weight_decay:{lr_weight_decay}  '_LR*LLDR**i':{tmp}   \n{DEBUGLINE}"
-                    paratmp = [n for n, p in layer.named_parameters() if not namefiler(n)]
-                    for paratmpName in paratmp:
-                        DEBUGMSG+=  f'\n{paratmpName}\n{DEBUGLINE}'
-                    DEBUGMSG  = "\n=================================\n"
-                    DEBUGMSG += "    LLDR-params-namefiler    "
-                    DEBUGMSG += "\n weight_decay:0.0  '_LR*LLDR**i':{tmp}   \n{DEBUGLINE}"
-                    paratmp = [n for n, p in layer.named_parameters() if namefiler(n)]
-                    for paratmpName in paratmp:
-                        DEBUGMSG+=  f'\n{paratmpName}\n{DEBUGLINE}'
+            if i==0:
+                DEBUGMSG  += "\n=================================\n"
+                DEBUGMSG += "    LLDR-params-not namefiler    "
+                tmp = _LR*LLDR**i
+                DEBUGMSG += "\n weight_decay:{lr_weight_decay}  '_LR*LLDR**i':{tmp}   \n{DEBUGLINE}"
+                paratmp = [n for n, p in layer.named_parameters() if not namefiler(n)]
+                for paratmpName in paratmp:
+                    DEBUGMSG+=  f'\n{paratmpName}\n{DEBUGLINE}'
+                DEBUGMSG  = "\n=================================\n"
+                DEBUGMSG += "    LLDR-params-namefiler    "
+                DEBUGMSG += f"\n weight_decay:0.0  '_LR*LLDR**i':{tmp}   \n{DEBUGLINE}"
+                paratmp = [n for n, p in layer.named_parameters() if namefiler(n)]
+                for paratmpName in paratmp:
+                    DEBUGMSG+=  f'\n{paratmpName}\n{DEBUGLINE}'
     #===============================================================================================
     
     if OptimName !="Ranger21":
@@ -231,13 +232,13 @@ def get_optim_scheduler(model,args):
         )
         DEBUGMSG+=  f"\noptimizer: {OptimName}\n{DEBUGLINE}"
         DEBUGMSG+=  f"\nparams: {str(args.optimizer[OptimName])}\n{DEBUGLINE}"
-    else args.optimizer['name']=="Ranger21":
+    else:
         optimizer = Ranger21(
             H_grouped_optimize_parameters+C_grouped_optimize_parameters, 
             **args.optimizer['rparams']
         )
         DEBUGMSG+=  f"\noptimizer：{args.optimizer['name']}\n{DEBUGLINE}"
-        DEBUGMSG+=  f"\nrparams: {str(args.optimizer["rparams"])}\n{DEBUGLINE}"
+        DEBUGMSG+=  f"\nrparams: {str(args.optimizer['rparams'])}\n{DEBUGLINE}"
 
 
     if (not OptimName=="Ranger21"
@@ -319,8 +320,8 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
     EARLY_STOPPING = EarlyStopping(patience=patience,max_minze=args.MAXIMIZE) 
     HISTORY.on_train_begin(logs = {"start_time":time.time()})
 
-    # if args.trainer['use_amp'] and ("cuda" in str(device)):
-    #     scaler = amp.GradScaler(enabled=True)#apex
+    if args.trainer['use_amp'] and ("cuda" in str(device)):
+        scaler = amp.GradScaler(enabled=True)#apex
     optimizer.zero_grad()
     model.zero_grad()
     all_best_predictions = None
@@ -347,7 +348,7 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
         # =============================================
         # step
         for step, batch in enumerate(trainloader):
-            DEBUGCONTAIN.SINCE_last_accumulated_steps.apppend(
+            DEBUGCONTAIN.SINCE_last_accumulated_steps.append(
                 HISTORY.SINCE_last_accumulated_steps
             ) 
 
@@ -373,22 +374,12 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
 
             if args.trainer['use_amp']:
                 with amp.autocast(enabled=True):
-                    if args.model['loss'] == 'MDNLoss':
-                        pi, sigma, mu = model(**batch)
-                        loss = criterions[0](pi, sigma, mu, n_target)
-                        pred = MDNPredict(pi, sigma, mu)
-                    else:
-                        pred, _var = model(**batch)
-                        loss = compute_loss(pred, n_target, _var, criterions)
-                        
-            else:
-                if args.model['loss'] == 'MDNLoss':
-                    pi, sigma, mu = model(**batch)
-                    loss = criterions(pi, sigma, mu, n_target)
-                    pred = MDNPredict(pi, sigma, mu)
-                else:
                     pred, _var = model(**batch)
                     loss = compute_loss(pred, n_target, _var, criterions)
+                        
+            else:
+                pred, _var = model(**batch)
+                loss = compute_loss(pred, n_target, _var, criterions)
 
             this_eval_targets = _append(
                 this_eval_targets,
@@ -417,9 +408,6 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
             HISTORY.on_step_end(loss, target)
 
             del target,batch, pred, n_target
-            if args.model['loss'] == 'MDNLoss':
-                del pi, sigma, mu
-
             torch.cuda.empty_cache()
             gc.collect()
 
@@ -630,13 +618,8 @@ def evaluate(args, dataloader, model, device, criterions):
         # =================================
 
         with torch.no_grad():
-            if args.model['loss'] == 'MDNLoss':
-                pi, sigma, mu = model(**batch)
-                loss = criterions(pi, sigma, mu, n_target)
-                pred = MDNPredict(pi, sigma, mu)
-            else:
-                pred, _var = model(**batch)
-                loss = compute_loss(pred, n_target, _var, criterions)
+            pred, _var = model(**batch)
+            loss = compute_loss(pred, n_target, _var, criterions)
 
         batch_size = target.size(0)
         losses.update(loss.item(), batch_size)
@@ -726,7 +709,7 @@ def kfold(args,summary_df, prompt_df):
             input_size.append((32,512))
         else:
             input_size.append(None)
-    summary = ModelSummary(model, input_size)
+    summary = ModelSummary(model, input_size, device)
     summary.summary()
     del tokenizer, model,trainloader, evalloader,forward_signature,batch
     #======================================================================== 
