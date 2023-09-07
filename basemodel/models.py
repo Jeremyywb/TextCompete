@@ -74,7 +74,7 @@ class CommonLitModelV1(nn.Module):
             self.backbone = AutoModel.from_pretrained(download, config=self.config)
         else:
             self.backbone = AutoModel.from_config(self.config)
-        if self.cfg.gradient_checkpointing:
+        if gradient_checkpointing:
             self.backbone.gradient_checkpointing_enable()
 
         # ============================================

@@ -352,8 +352,8 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
             #     HISTORY.SINCE_last_accumulated_steps
             # ) 
 
-            batch = collate(batch)
             target = batch.pop('target')
+            batch = collate(batch)
 
             if args.split_n_components>1:
                 n_target = split_data_into_components(target, args.split_n_components,max_iter=100000)
@@ -419,22 +419,23 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
                 #=======================================================================
 
 
-                accumulation_step_msg = {
-                "PreGradNorm":calcu_grad_norm(model.parameters())}
+                # accumulation_step_msg = {
+                # "PreGradNorm":calcu_grad_norm(model.parameters())}
 
                 # if args.trainer['use_amp']:
                 #     scaler.unscale_(optimizer)
                 if args.trainer['grad_clip']:
-                    torch.nn.utils.clip_grad_norm_(
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
                              parameters = model.parameters(), 
                              max_norm = args.trainer['max_norm']
                     )
-
+                accumulation_step_msg = {
+                "PreGradNorm":grad_norm}
                 #=========================================================
                 # check for each clip step LR
                 accumulation_step_msg.update(
                     {"accum-LR":lr_scheduler.get_lr()[0],
-                    "GradNorm":calcu_grad_norm(model.parameters())}
+                    "GradNorm":grad_norm}
                     )
                 
                 
@@ -447,8 +448,8 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
                 else:
                     optimizer.step()
                 optimizer.zero_grad()
-                model.zero_grad()
                 lr_scheduler.step()
+                model.zero_grad()
                 HISTORY.on_accumulation_end(accumulation_step_msg)
                 
 
@@ -601,8 +602,8 @@ def evaluate(args, dataloader, model, device, criterions):
     for _, batch in enumerate(dataloader):
         # batch = collate(batch)
         # batch = batch_to_device(batch, device)
-        batch = collate(batch)
         target = batch.pop('target')
+        batch = collate(batch)
 
         if args.split_n_components>1:
             n_target = split_data_into_components(target, args.split_n_components,max_iter=100000)
