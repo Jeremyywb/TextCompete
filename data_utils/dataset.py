@@ -165,20 +165,20 @@ class CommonLitDataset(Dataset):
 
 def collate(inputs):#, sentmask):
     for intype in ['summary','prompt']:
-        DEBUGMSG = f"[collate fuc]: intype: {intype}"
-        print(DEBUGMSG)
+        # DEBUGMSG = f"[collate fuc]: intype: {intype}"
+        # print(DEBUGMSG)
         attention_mask = f"{intype}_attention_mask"
-        DEBUGMSG = f"[collate fuc]: attention_mask: {attention_mask}"
-        print(DEBUGMSG)
+        # DEBUGMSG = f"[collate fuc]: attention_mask: {attention_mask}"
+        # print(DEBUGMSG)
 
         if attention_mask in inputs:
             _mask_len = int(inputs[attention_mask].sum(axis=1).max())
-            DEBUGMSG = f"[collate fuc]: _mask_len:{_mask_len}"
-            print(DEBUGMSG)
+            # DEBUGMSG = f"[collate fuc]: _mask_len:{_mask_len}"
+            # print(DEBUGMSG)
             for k in list(inputs):
                 if intype in k:
-                    DEBUGMSG = f"[collate fuc]: k:{k}"
-                    print(DEBUGMSG)
+                    # DEBUGMSG = f"[collate fuc]: k:{k}"
+                    # print(DEBUGMSG)
                     inputs[k] = inputs[k][:, :_mask_len]
     return inputs
 
@@ -187,9 +187,9 @@ def batch_to_device(batch, device):
     return batch_dict
 
 def get_loader( args, tokenizer,summary_df,prompt_df, fold=None ):
-    DEBUGMSG = "============================================="
-    DEBUGLINE= "_____________________________________________"
-    DEBUGMSG += '\n<get_loader>'
+    # DEBUGMSG = "============================================="
+    # DEBUGLINE= "_____________________________________________"
+    # DEBUGMSG += '\n<get_loader>'
     dset_parameters = args.data['dataset']
     dset_parameters.update(
         {"pooling_name":args.model['pooling_params']['pooling_name'],
@@ -199,7 +199,7 @@ def get_loader( args, tokenizer,summary_df,prompt_df, fold=None ):
         }
     )
     if fold is not None:
-        DEBUGMSG += f"\n{str(dset_parameters)}\n{DEBUGLINE}"
+        # DEBUGMSG += f"\n{str(dset_parameters)}\n{DEBUGLINE}"
         train_df = summary_df[summary_df['fold']!=fold].reset_index(drop=True)
         valid_df = summary_df[summary_df['fold']==fold].reset_index(drop=True)
         train_dataset = CommonLitDataset(
@@ -219,7 +219,7 @@ def get_loader( args, tokenizer,summary_df,prompt_df, fold=None ):
         # sampler
         if args.Sampler == 'noo':
             train_loader = DataLoader(train_dataset,**args.train_loader)
-            DEBUGMSG += "\ntrain_loader: No sampler\n"
+            # DEBUGMSG += "\ntrain_loader: No sampler\n"
         elif args.Sampler == 'StratifiedSampler':
             args.train_loader['num_workers'] = 0
             args.train_loader['shuffle'] = False
@@ -227,14 +227,17 @@ def get_loader( args, tokenizer,summary_df,prompt_df, fold=None ):
             class_V = torch.from_numpy(train_df['fold'].values)
             sampler = StratifiedSampler(class_vector=class_V, batch_size=args.train_loader['batch_size'])
             train_loader = DataLoader(train_dataset,sampler=sampler,**args.train_loader)
-            DEBUGMSG += "\ntrain_loader: StratifiedSampler\n"
+            # DEBUGMSG += "\ntrain_loader: StratifiedSampler\n"
         elif args.Sampler == 'RandomSampler':
             args.train_loader['shuffle'] = False
             train_loader = DataLoader(train_dataset,sampler=RandomSampler(train_dataset) ,**args.train_loader)
-            DEBUGMSG += "\ntrain_loader: RandomSampler\n"
-        DEBUGMSG = f"\n{str(args.train_loader)}\n{DEBUGLINE}"
+            # DEBUGMSG += "\ntrain_loader: RandomSampler\n"
+        # DEBUGMSG += f"\ntrainloader:{str(args.train_loader)}\n{DEBUGLINE}"
+        # DEBUGMSG += f"\n{str(args.train_loader)}\n{DEBUGLINE}"
+        # DEBUGMSG += f"\nvalidloader:{str(args.train_loader)}\n{DEBUGLINE}"
+        # DEBUGMSG += f"\n{str(args.val_loader)}\n{DEBUGLINE}"
         # =====================================================================
-
+        # print(DEBUGMSG)
         args.len_train_loader = len(train_loader)
         val_loader = DataLoader(val_dataset,**args.val_loader)
         return train_loader,val_loader

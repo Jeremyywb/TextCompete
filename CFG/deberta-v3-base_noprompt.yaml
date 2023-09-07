@@ -158,7 +158,7 @@ AGC:
 
 lambda_l1: 0.0
 optimizer:
-  name : transformersAdamW
+  name : torchAdamW
   LLDR: 0.9
   HeadLR: 0.00002
   torchAdamW : 

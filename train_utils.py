@@ -178,8 +178,8 @@ def get_optim_scheduler(model,args):
     num_freeze_layer = args.model['params']['freezing']
 
     no_decay =  ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-    DEBUGMSG = "get_optim_scheduler"
-    DEBUGLINE= "_________________________________"
+    # DEBUGMSG = "get_optim_scheduler"
+    # DEBUGLINE= "_"*50
     
     
     # ============================================================================
@@ -209,20 +209,20 @@ def get_optim_scheduler(model,args):
                 { "params": [p for n, p in layer.named_parameters() if namefiler(n)],
                   "weight_decay": 0.0, "lr": _LR*LLDR**i}
                  ]
-            if i==0:
-                DEBUGMSG  += "\n=================================\n"
-                DEBUGMSG += "    LLDR-params-not namefiler    "
-                tmp = _LR*LLDR**i
-                DEBUGMSG += "\n weight_decay:{lr_weight_decay}  '_LR*LLDR**i':{tmp}   \n{DEBUGLINE}"
-                paratmp = [n for n, p in layer.named_parameters() if not namefiler(n)]
-                for paratmpName in paratmp:
-                    DEBUGMSG+=  f'\n{paratmpName}\n{DEBUGLINE}'
-                DEBUGMSG  = "\n=================================\n"
-                DEBUGMSG += "    LLDR-params-namefiler    "
-                DEBUGMSG += f"\n weight_decay:0.0  '_LR*LLDR**i':{tmp}   \n{DEBUGLINE}"
-                paratmp = [n for n, p in layer.named_parameters() if namefiler(n)]
-                for paratmpName in paratmp:
-                    DEBUGMSG+=  f'\n{paratmpName}\n{DEBUGLINE}'
+            # if i==0:
+            #     DEBUGMSG  += "\n==============================================================\n"
+            #     DEBUGMSG  += "    LLDR-params-not namefiler    "
+            #     tmp = _LR*LLDR**i
+            #     DEBUGMSG += f"\n weight_decay:{lr_weight_decay}  '_LR*LLDR**i':{tmp}   \n{DEBUGLINE}"
+            #     paratmp = [n for n, p in layer.named_parameters() if not namefiler(n)]
+            #     for paratmpName in paratmp:
+            #         DEBUGMSG+=  f'\n{paratmpName}\n{DEBUGLINE}'
+            #     DEBUGMSG  += "\n=================================\n"
+            #     DEBUGMSG += "    LLDR-params-namefiler    "
+            #     DEBUGMSG += f"\n weight_decay:0.0  '_LR*LLDR**i':{tmp}   \n{DEBUGLINE}"
+            #     paratmp = [n for n, p in layer.named_parameters() if namefiler(n)]
+            #     for paratmpName in paratmp:
+            #         DEBUGMSG+=  f'\n{paratmpName}\n{DEBUGLINE}'
     #===============================================================================================
     
     if OptimName !="Ranger21":
@@ -230,20 +230,20 @@ def get_optim_scheduler(model,args):
             H_grouped_optimize_parameters+C_grouped_optimize_parameters,
             **args.optimizer[OptimName]
         )
-        DEBUGMSG+=  f"\noptimizer: {OptimName}\n{DEBUGLINE}"
-        DEBUGMSG+=  f"\nparams: {str(args.optimizer[OptimName])}\n{DEBUGLINE}"
+        # DEBUGMSG+=  f"\noptimizer: {OptimName}\n{DEBUGLINE}"
+        # DEBUGMSG+=  f"\nparams: {str(args.optimizer[OptimName])}\n{DEBUGLINE}"
     else:
         optimizer = Ranger21(
             H_grouped_optimize_parameters+C_grouped_optimize_parameters, 
             **args.optimizer['rparams']
         )
-        DEBUGMSG+=  f"\noptimizer：{args.optimizer['name']}\n{DEBUGLINE}"
-        DEBUGMSG+=  f"\nrparams: {str(args.optimizer['rparams'])}\n{DEBUGLINE}"
+        # DEBUGMSG+=  f"\noptimizer：{args.optimizer['name']}\n{DEBUGLINE}"
+        # DEBUGMSG+=  f"\nrparams: {str(args.optimizer['rparams'])}\n{DEBUGLINE}"
 
 
     if (not OptimName=="Ranger21"
         and args.USE_ADAM_AGC):
-        DEBUGMSG+=  f"\noptimizer：USE_ADAM_AGC\n{DEBUGLINE}"
+        # DEBUGMSG+=  f"\noptimizer：USE_ADAM_AGC\n{DEBUGLINE}"
         
         args.trainer['grad_clip'] = False
         print("++++++++++++++USE AGC++++++++++++++")
@@ -266,11 +266,11 @@ def get_optim_scheduler(model,args):
     #===============================================
     # poly
     scheduler = eval(schedGett)(optimizer,**schedPara)
-    DEBUGMSG += f"\nscheduler:{schedName}"
-    DEBUGMSG += "\n=============================="
-    DEBUGMSG += f"\nscheduler params:\n{str(schedPara)}\n{DEBUGLINE}"
+    # DEBUGMSG += f"\nscheduler:{schedName}"
+    # DEBUGMSG += "\n=============================="
+    # DEBUGMSG += f"\nscheduler params:\n{str(schedPara)}\n{DEBUGLINE}"
     #============================================================
-    print(DEBUGMSG)
+    # print(DEBUGMSG)
     return ( optimizer, scheduler )
 # =====================================================================================================
 
@@ -307,10 +307,10 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
         LOGGER = LOGGER,
         verbose = args.verbose
     )
-    DEBUGMSG = "======================================="
-    DEBUGLINE= "_______________________________________"
-    DEBUGCONTAIN.SINCE_last_accumulated_steps = []
-    DEBUGMSG+=  f"\ntrain"
+    # DEBUGMSG = "======================================="
+    # DEBUGLINE= "_______________________________________"
+    # DEBUGCONTAIN.SINCE_last_accumulated_steps = []
+    # DEBUGMSG+=  f"\ntrain"
     
     (
     num_train_steps,
@@ -348,9 +348,9 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
         # =============================================
         # step
         for step, batch in enumerate(trainloader):
-            DEBUGCONTAIN.SINCE_last_accumulated_steps.append(
-                HISTORY.SINCE_last_accumulated_steps
-            ) 
+            # DEBUGCONTAIN.SINCE_last_accumulated_steps.append(
+            #     HISTORY.SINCE_last_accumulated_steps
+            # ) 
 
             batch = collate(batch)
             target = batch.pop('target')
@@ -568,7 +568,7 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
         del all_predictions
         HISTORY.on_epoch_end()
 
-        print(DEBUGCONTAIN.SINCE_last_accumulated_steps)
+        # print(DEBUGCONTAIN.SINCE_last_accumulated_steps)
             
 
         if EARLY_STOPPING.should_training_stop:

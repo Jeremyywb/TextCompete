@@ -49,6 +49,7 @@ class CommonLitModelV1(nn.Module):
         REINIT_LAYERS,
         init_head,
         output_dim,
+        download,
         headname,
         config_path=None,
         pooling_params={},
@@ -58,15 +59,22 @@ class CommonLitModelV1(nn.Module):
 
         # ============================================
         # backbone setting
-        self.config = torch.load(config_path)
-        self.config.hidden_dropout = 0.
-        self.config.hidden_dropout_prob = 0.
-        self.config.attention_dropout = 0.
-        self.config.attention_probs_dropout_prob = 0.
-        self.backbone = AutoModel.from_config(self.config)
-        if gradient_checkpointing:
-            self.backbone.gradient_checkpointing_enable()
+        # BUGGGG : AutoModel.from_config init randomly
         # ============================================
+        if config_path is None:
+            self.config = AutoConfig.from_pretrained(download, output_hidden_states=True)
+            self.config.hidden_dropout = 0.
+            self.config.hidden_dropout_prob = 0.
+            self.config.attention_dropout = 0.
+            self.config.attention_probs_dropout_prob = 0.
+        else:
+            self.config = torch.load(config_path)
+        if pretrained:
+            self.backbone = AutoModel.from_pretrained(download, config=self.config)
+        else:
+            self.backbone = AutoModel.from_config(self.config)
+        if self.cfg.gradient_checkpointing:
+            self.backbone.gradient_checkpointing_enable()
 
         # ============================================
         # init para
@@ -220,12 +228,14 @@ def load_from_pretrained(args):
     for _name in _update:
         model_parameters[_name] = args.model[_name]
     if args.do_inference:
+        model_parameters.update({"pretrained":False})
         model = CommonLitModelV1(**model_parameters)
         state = torch.load(args.foldModel,
         #                            map_location=torch.device('cpu')
                 )
         model.load_state_dict(state)
     if args.do_train:
+        model_parameters.update({"pretrained":True})
         model =  CommonLitModelV1(**model_parameters)
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
     return tokenizer, model
