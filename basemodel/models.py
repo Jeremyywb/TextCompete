@@ -49,6 +49,7 @@ class CommonLitModelV1(nn.Module):
         REINIT_LAYERS,
         init_head,
         output_dim,
+        pretrained,
         download,
         headname,
         config_path=None,
@@ -221,7 +222,8 @@ def load_from_pretrained(args):
     model_parameters = {}
     model_parameters.update( args.model['params'] )
     model_parameters.update(
-        {"config_path":args.config_path}
+        {"config_path":args.config_path,
+        "download":args.download}
         )
 
     _update = ['CrosConvPara','CrosenEoderPara','pooling_params','spans_pooling_params','CrosAttPara']
