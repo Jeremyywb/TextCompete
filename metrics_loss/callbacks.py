@@ -244,6 +244,8 @@ class History(object):
             return
         if self.eval_interval_grad_norms['GradNorm']:
             stack_to_np = torch.tensor(self.eval_interval_grad_norms['GradNorm'])
+            print("+++++++++++++++++++stack_to_np+++++++++++++++++++")
+            print(stack_to_np)
             stack_to_np2 = torch.tensor(self.eval_interval_grad_norms['PreGradNorm'])
             
             if torch.logical_or(stack_to_np.isnan().any(),stack_to_np.isinf().any()):
@@ -266,6 +268,7 @@ class History(object):
                 ' - maxgrad: {MaxGrad}'
                 ' - avggrad: {AvgGrad}'
                 ' - pregrad: {PreAvgGrad}'
+                ' - lasgrad:{lasgrad}'
                 ' - lr: {lr:.2f}e-5'
                 .format(
                       # step+1, self.num_train_steps,
@@ -273,6 +276,7 @@ class History(object):
                       loss=self.eval_inner_losses,
                       MaxGrad=MaxGrad,
                       AvgGrad=AvgGrad,
+                      lasgrad=self.eval_interval_grad_norms['GradNorm'][-1],
                       PreAvgGrad=PreAvgGrad,
                       lr=LR*10000)
             )

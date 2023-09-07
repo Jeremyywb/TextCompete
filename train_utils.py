@@ -329,7 +329,7 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
 
 
     #=========================================================
-    # epoch ttagggggggggg
+    # epoch
     for e in range(HISTORY._epochs):
         gradient_accumulation_steps = HISTORY.on_epoch_begin()
         gradient_divider = gradient_accumulation_steps
@@ -349,7 +349,9 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
          all_references, 
          all_predictions) = None,None,None,None,None,None
 
-        
+        # (this_eval_targets, this_eval_preditions, gradnorm 
+        #     )= train_fn(gradient_accumulation_steps, trainloader, 
+        #                     model, criterions[args.loss['losses']], optimizer, e, lr_scheduler, device)
         # =============================================
         # step
         for step, batch in enumerate(trainloader):
@@ -409,22 +411,22 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
             else:
                 loss.backward()
 
-            #++++++++++++++TEST++++++++++++++++++++++
-            if args.trainer['grad_clip']:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                         parameters = model.parameters(), 
-                         max_norm = args.trainer['max_norm']
-                )
-            accumulation_step_msg = {
-            "PreGradNorm":grad_norm}
-            #=========================================================
-            # check for each clip step LR
-            accumulation_step_msg.update(
-                {"accum-LR":lr_scheduler.get_lr()[0],
-                "GradNorm":grad_norm}
-                )
+            # #++++++++++++++TEST++++++++++++++++++++++
+            # if args.trainer['grad_clip']:
+            #     grad_norm = torch.nn.utils.clip_grad_norm_(
+            #              parameters = model.parameters(), 
+            #              max_norm = args.trainer['max_norm']
+            #     )
+            # accumulation_step_msg = {
+            # "PreGradNorm":grad_norm}
+            # #=========================================================
+            # # check for each clip step LR
+            # accumulation_step_msg.update(
+            #     {"accum-LR":lr_scheduler.get_lr()[0],
+            #     "GradNorm":grad_norm}
+            #     )
             
-            #++++++++++++++TEST++++++++++++++++++++++
+            # #++++++++++++++TEST++++++++++++++++++++++
 
 
             #=========================================================
@@ -446,24 +448,23 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
                 #=======================================================================
 
 
-                # accumulation_step_msg = {
-                # "PreGradNorm":calcu_grad_norm(model.parameters())}
+                accumulation_step_msg = {
+                "PreGradNorm":calcu_grad_norm(model.parameters())}
 
                 # if args.trainer['use_amp']:
                 #     scaler.unscale_(optimizer)
-                # if args.trainer['grad_clip']:
-                #     grad_norm = torch.nn.utils.clip_grad_norm_(
-                #              parameters = model.parameters(), 
-                #              max_norm = args.trainer['max_norm']
-                #     )
-                # accumulation_step_msg = {
-                # "PreGradNorm":grad_norm}
-                # #=========================================================
-                # # check for each clip step LR
-                # accumulation_step_msg.update(
-                #     {"accum-LR":lr_scheduler.get_lr()[0],
-                #     "GradNorm":grad_norm}
-                #     )
+                if args.trainer['grad_clip']:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                             parameters = model.parameters(), 
+                             max_norm = args.trainer['max_norm']
+                    )
+
+                #=========================================================
+                # check for each clip step LR
+                accumulation_step_msg.update(
+                    {"accum-LR":lr_scheduler.get_lr()[0],
+                    "GradNorm":grad_norm}
+                    )
                 
                 
                 # #=========================================================
@@ -585,6 +586,10 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
             G_train_metrics = get_score(args, 'gloloss', all_eval_targets, all_eval_preditions)
             #=============================================================================================
             msg.update(G_train_metrics)
+
+            # # ============tmp
+            # msg.update({'Grad':gradnorm})
+            step = num_train_steps-1
             
             
             HISTORY.on_next_eval(step, msg)
@@ -618,6 +623,45 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
     
     return all_references, all_best_predictions
 
+def train_fn(gradient_accumulation_steps, train_loader, model, criterion, optimizer, epoch, scheduler, device):
+    model.train()
+    scaler = torch.cuda.amp.GradScaler(enabled=True)
+    losses = AverageMeter()
+    global_step = 0
+    alltargets = []
+    allpreds = []
+    grads = []
+    for step, inputs  in enumerate(train_loader):
+        # print(list(inputs))
+        labels = inputs.pop('target')
+        inputs = collate(inputs)
+        
+        for k, v in inputs.items():
+            inputs[k] = v.to(device)
+        labels = labels.to(device)
+        batch_size = labels.size(0)
+        with torch.cuda.amp.autocast(enabled=True):
+            y_preds,var = model(**inputs)
+            loss = criterion(y_preds, labels)
+        if gradient_accumulation_steps > 1:
+            loss = loss / gradient_accumulation_steps
+        losses.update(loss.item(), batch_size)
+        scaler.scale(loss).backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1000)
+        grads.append(grad_norm )
+        if (step + 1) % gradient_accumulation_steps == 0:
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad()
+            global_step += 1
+            scheduler.step()
+        alltargets.append(labels.detach().cpu().numpy())
+        allpreds.append(y_preds.detach().cpu().numpy())
+    alltargets = np.concatenate(alltargets)
+    allpreds = np.concatenate(allpreds)
+    return alltargets,allpreds,grads
+
+
 # ==================================================================================
 # evaluate val dataloader
 
@@ -632,8 +676,6 @@ def evaluate(args, dataloader, model, device, criterions):
         # batch = collate(batch)
         # batch = batch_to_device(batch, device)
         target = batch.pop('target')
-        print("==================target.shape==================")
-        print(target.shape)
         batch = collate(batch)
 
         if args.split_n_components>1:
@@ -787,9 +829,9 @@ def kfold(args,summary_df, prompt_df):
         #     reset = False
 
         #===============================================
-        # add some tok
-        for tok in ["...","???","!!!",",,,"]:
-            tokenizer.add_tokens([tok], special_tokens=False)
+        # add some tok...有可能是这个原因
+        # for tok in ["...","???","!!!",",,,"]:
+        #     tokenizer.add_tokens([tok], special_tokens=False)
         #===============================================
 
         

@@ -62,14 +62,19 @@ class CommonLitModelV1(nn.Module):
         # backbone setting
         # BUGGGG : AutoModel.from_config init randomly
         # ============================================
-        if config_path is None:
-            self.config = AutoConfig.from_pretrained(download, output_hidden_states=True)
-            self.config.hidden_dropout = 0.
-            self.config.hidden_dropout_prob = 0.
-            self.config.attention_dropout = 0.
-            self.config.attention_probs_dropout_prob = 0.
-        else:
-            self.config = torch.load(config_path)
+        # if config_path is None:
+        #     self.config = AutoConfig.from_pretrained(download, output_hidden_states=True)
+        #     self.config.hidden_dropout = 0.
+        #     self.config.hidden_dropout_prob = 0.
+        #     self.config.attention_dropout = 0.
+        #     self.config.attention_probs_dropout_prob = 0.
+        # else:
+        #     self.config = torch.load(config_path)
+        self.config = torch.load(config_path)
+        self.config.hidden_dropout = 0.
+        self.config.hidden_dropout_prob = 0.
+        self.config.attention_dropout = 0.
+        self.config.attention_probs_dropout_prob = 0.
         if pretrained:
             self.backbone = AutoModel.from_pretrained(download, config=self.config)
         else:
@@ -225,29 +230,23 @@ def load_from_pretrained(args):
     #     {"config_path":args.config_path,
     #     "download":args.download}
     #     )
-    model_parameters.update(
-        {"download":args.download}
-        )
+    model_parameters.update( {"download":args.download,
+                              "config_path":args.config_path}  )
 
     _update = ['CrosConvPara','CrosenEoderPara','pooling_params','spans_pooling_params','CrosAttPara']
     for _name in _update:
         model_parameters[_name] = args.model[_name]
     if args.do_inference:
-        model_parameters.update(
-            {"pretrained":False,
-             "config_path":args.config_path}
-            )
+        model_parameters.update( {"pretrained":False } )
         model = CommonLitModelV1(**model_parameters)
         state = torch.load(args.foldModel,
             map_location=torch.device('cpu')
                 )
         model.load_state_dict(state)
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
     if args.do_train:
-        model_parameters.update(
-            {"pretrained":True
-            "config_path":args.config_path})#这里注意是否要none？
+        model_parameters.update({"pretrained":True })#影响model中 dropout配置
         model =  CommonLitModelV1(**model_parameters)
-    # ****************************这里注意，是否要改
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
     return tokenizer, model
 
@@ -256,6 +255,7 @@ def download_configs(args):
     config = AutoConfig.from_pretrained(args.download, output_hidden_states=True) 
     tokenizer.save_pretrained(args.tokenizer_path)
     torch.save(config, args.config_path)
+    del tokenizer,config
 
 # ==================================================================================
 
