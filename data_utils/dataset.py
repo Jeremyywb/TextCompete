@@ -183,8 +183,9 @@ def collate(inputs):#, sentmask):
     return inputs
 
 def batch_to_device(batch, device):
-    batch_dict = {key: batch[key].to(device) for key in batch}
-    return batch_dict
+    for k, v in batch.items():
+        batch[k] = v.to(device)
+    return batch
 
 def get_loader( args, tokenizer,summary_df,prompt_df, fold=None ):
     # DEBUGMSG = "============================================="

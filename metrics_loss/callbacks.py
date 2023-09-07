@@ -216,7 +216,6 @@ class History(object):
         self.epoch_time_start = time.time()*1000
 
         self.UNtrained_INEpoch_steps = self.num_train_steps
-        self.SINCE_last_accumulated_steps = 0
         self.epoch += 1
 
         self.eval_interval_grad_norms = {"accum-LR":[], "GradNorm":[], "PreGradNorm":[]}
@@ -310,7 +309,6 @@ class History(object):
 
 
     def on_accumulation_end(self,accumulation_step_msg):
-        self.SINCE_last_accumulated_steps = 0
         self.eval_interval_grad_norms['accum-LR'].append(accumulation_step_msg['accum-LR'])
         self.eval_interval_grad_norms['PreGradNorm'].append(accumulation_step_msg['PreGradNorm'])
         if 'GradNorm' in accumulation_step_msg:
@@ -336,7 +334,6 @@ class History(object):
                 contains `loss` and `batch_size`.
         """
 
-        self.SINCE_last_accumulated_steps += 1
         self.UNtrained_INEpoch_steps -= 1
         self.completed_steps +=1
         self.since_last_evaled_step += 1

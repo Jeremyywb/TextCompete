@@ -221,24 +221,33 @@ def load_from_pretrained(args):
 
     model_parameters = {}
     model_parameters.update( args.model['params'] )
+    # model_parameters.update(
+    #     {"config_path":args.config_path,
+    #     "download":args.download}
+    #     )
     model_parameters.update(
-        {"config_path":args.config_path,
-        "download":args.download}
+        {"download":args.download}
         )
 
     _update = ['CrosConvPara','CrosenEoderPara','pooling_params','spans_pooling_params','CrosAttPara']
     for _name in _update:
         model_parameters[_name] = args.model[_name]
     if args.do_inference:
-        model_parameters.update({"pretrained":False})
+        model_parameters.update(
+            {"pretrained":False,
+             "config_path":args.config_path}
+            )
         model = CommonLitModelV1(**model_parameters)
         state = torch.load(args.foldModel,
-        #                            map_location=torch.device('cpu')
+            map_location=torch.device('cpu')
                 )
         model.load_state_dict(state)
     if args.do_train:
-        model_parameters.update({"pretrained":True})
+        model_parameters.update(
+            {"pretrained":True
+            "config_path":args.config_path})#这里注意是否要none？
         model =  CommonLitModelV1(**model_parameters)
+    # ****************************这里注意，是否要改
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
     return tokenizer, model
 

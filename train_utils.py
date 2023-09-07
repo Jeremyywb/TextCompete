@@ -19,7 +19,6 @@ import torch.nn as nn
 from torch.cuda import amp
 import torch.optim as optim
 from torch.optim.lr_scheduler import OneCycleLR
-
 import torch.nn.functional as F
 from transformers import AutoTokenizer,AutoConfig
 from transformers import get_linear_schedule_with_warmup,get_cosine_schedule_with_warmup,get_polynomial_decay_schedule_with_warmup
@@ -317,19 +316,25 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
     start_eval_step,
     eval_steps,
     patience) = HISTORY._prepare_args(trainloader)
+
+
     EARLY_STOPPING = EarlyStopping(patience=patience,max_minze=args.MAXIMIZE) 
     HISTORY.on_train_begin(logs = {"start_time":time.time()})
 
-    if args.trainer['use_amp'] and ("cuda" in str(device)):
-        scaler = amp.GradScaler(enabled=True)#apex
+    # if args.trainer['use_amp'] and ("cuda" in str(device)):
+    #     scaler = amp.GradScaler(enabled=True)#apex
     optimizer.zero_grad()
     model.zero_grad()
     all_best_predictions = None
-    n_criterions = len(criterions)
+
+
     #=========================================================
     # epoch ttagggggggggg
     for e in range(HISTORY._epochs):
         gradient_accumulation_steps = HISTORY.on_epoch_begin()
+        gradient_divider = gradient_accumulation_steps
+        last_gradient_divider = num_train_steps%gradient_accumulation_steps
+
         HISTORY._reset_to_next_eval()
         model.train()
         #=====================================================
@@ -376,10 +381,10 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
                 with amp.autocast(enabled=True):
                     pred, _var = model(**batch)
                     loss = compute_loss(pred, n_target, _var, criterions)
-                        
             else:
                 pred, _var = model(**batch)
                 loss = compute_loss(pred, n_target, _var, criterions)
+            loss = loss/gradient_divider
 
             this_eval_targets = _append(
                 this_eval_targets,
@@ -390,7 +395,7 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
                 pred.detach().cpu().numpy()
             )
 
-            loss = loss/gradient_accumulation_steps
+            
             # print(loss)
             if args.lambda_l1>0:
                 l1 = 0
@@ -404,6 +409,25 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
             else:
                 loss.backward()
 
+            #++++++++++++++TEST++++++++++++++++++++++
+            if args.trainer['grad_clip']:
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                         parameters = model.parameters(), 
+                         max_norm = args.trainer['max_norm']
+                )
+            accumulation_step_msg = {
+            "PreGradNorm":grad_norm}
+            #=========================================================
+            # check for each clip step LR
+            accumulation_step_msg.update(
+                {"accum-LR":lr_scheduler.get_lr()[0],
+                "GradNorm":grad_norm}
+                )
+            
+            #++++++++++++++TEST++++++++++++++++++++++
+
+
+            #=========================================================
             status_bar(step, num_train_steps)
             HISTORY.on_step_end(loss, target)
 
@@ -411,11 +435,14 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
             torch.cuda.empty_cache()
             gc.collect()
 
-            if HISTORY.SINCE_last_accumulated_steps == gradient_accumulation_steps:
+            if ((step+1)%gradient_accumulation_steps == 0
+                or step+1 == num_train_steps):
 
                 #====================================================================
                 # for sake of the rest/last steps unmeets gradient_accumulation_steps
-                gradient_accumulation_steps = min(gradient_accumulation_steps,HISTORY.UNtrained_INEpoch_steps)
+                if (gradient_accumulation_steps>HISTORY.UNtrained_INEpoch_steps
+                    and last_gradient_divider>0):
+                    gradient_divider = last_gradient_divider
                 #=======================================================================
 
 
@@ -424,22 +451,22 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
 
                 # if args.trainer['use_amp']:
                 #     scaler.unscale_(optimizer)
-                if args.trainer['grad_clip']:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(
-                             parameters = model.parameters(), 
-                             max_norm = args.trainer['max_norm']
-                    )
-                accumulation_step_msg = {
-                "PreGradNorm":grad_norm}
-                #=========================================================
-                # check for each clip step LR
-                accumulation_step_msg.update(
-                    {"accum-LR":lr_scheduler.get_lr()[0],
-                    "GradNorm":grad_norm}
-                    )
+                # if args.trainer['grad_clip']:
+                #     grad_norm = torch.nn.utils.clip_grad_norm_(
+                #              parameters = model.parameters(), 
+                #              max_norm = args.trainer['max_norm']
+                #     )
+                # accumulation_step_msg = {
+                # "PreGradNorm":grad_norm}
+                # #=========================================================
+                # # check for each clip step LR
+                # accumulation_step_msg.update(
+                #     {"accum-LR":lr_scheduler.get_lr()[0],
+                #     "GradNorm":grad_norm}
+                #     )
                 
                 
-                #=========================================================
+                # #=========================================================
 
 
                 if args.trainer['use_amp']:
@@ -463,6 +490,7 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
                 ):
                     
                     eval_results, all_references, all_predictions =  evaluate(args, evalloader, model, device, criterions)
+
 
                     _score = eval_results[args.callbacks['metric_track']]
                     msg = {}
@@ -527,7 +555,9 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
                 break
         
 
-        if evalloader is not None and args.evaluation_strategy == IntervalStrategy.EPOCH.value:
+        if (evalloader is not None 
+            and args.evaluation_strategy == IntervalStrategy.EPOCH.value
+            ):
             eval_results, all_references, all_predictions =  evaluate(args, evalloader, model, device, criterions)
             _score = eval_results[args.callbacks['metric_track']]
             msg = {}
@@ -595,7 +625,6 @@ def evaluate(args, dataloader, model, device, criterions):
     all_predictions = None
     all_references = None
     losses = AverageMeter()
-    n_criterions = len(criterions)
 
     eval_results = {}
     model.eval()
@@ -603,6 +632,8 @@ def evaluate(args, dataloader, model, device, criterions):
         # batch = collate(batch)
         # batch = batch_to_device(batch, device)
         target = batch.pop('target')
+        print("==================target.shape==================")
+        print(target.shape)
         batch = collate(batch)
 
         if args.split_n_components>1:
