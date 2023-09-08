@@ -136,7 +136,7 @@ class BINSSOFTMAX(nn.Module):
         self.config = config
         self.numbins = 16
         self.values_bins = nn.Parameter(
-            torch.tensor(np.arange(self.numbins)/self.numbins*7-2),
+            torch.tensor(np.arange(self.numbins)/self.numbins*7.0-2),
             requires_grad=False
         )
         

@@ -151,10 +151,25 @@ model:
 # Debiasing Omission In BertADAM
 # Adamw
 #===========================
-ignore_head: false
-AGC:
- clipping: 0.005
- eps: 0.000001
+
+
+clipgrad:
+  clipname: CustomAGC
+  CustomAGC:
+    eps: 0.001
+    clipping: 0.01
+  clipnorm:
+    max_norm: 1000
+  AGC:
+    ignore_head: false
+    clipping: 0.005
+    eps: 0.000001
+
+  
+# AGC
+# clipnorm
+# CustomAGC
+# NONE
 
 lambda_l1: 0.0
 optimizer:
@@ -247,8 +262,7 @@ test_loader:
 #   experiment :10*batch_size 
 #===========================
 
-USE_ADAM_AGC: false
-use_adaptive_clip: false
+
 verbose: 1
 trainer:
   HEADTrain: false
@@ -258,8 +272,7 @@ trainer:
   use_amp: true
   epochs: 4
   gradient_checkpointing: true
-  grad_clip: true
-  max_norm: 1000
+
 
 
 

@@ -14,8 +14,6 @@ from torch.utils._foreach_utils import _group_tensors_by_device_and_dtype, _has_
 
 _tensor_or_tensors = Union[torch.Tensor, Iterable[torch.Tensor]]
 
-__all__ = ['clip_grad_norm_', 'clip_grad_norm', 'clip_grad_value_']
-
 # ==========================
 # model evaluate strategy
 @unique
@@ -100,7 +98,7 @@ def unitwise_norm(x: torch.Tensor):
 
     return torch.sum(x**2, dim=dim, keepdim=keepdim) ** 0.5
 
-
+# optim.param_groups
 class AGC(optim.Optimizer):
     """Generic implementation of the Adaptive Gradient Clipping
 
@@ -114,7 +112,13 @@ class AGC(optim.Optimizer):
       ignore_agc (str, Iterable, optional): Layers for AGC to ignore
     """
 
-    def __init__(self, clip_params,no_clip_params, optim: optim.Optimizer, clipping: float = 1e-2, eps: float = 1e-3, model=None, ignore_agc=["fc"]):
+    def __init__(self, 
+        # clip_params,
+        # no_clip_params,
+        ignore_head, 
+        optim: optim.Optimizer, 
+        clipping: float = 1e-2, 
+        eps: float = 1e-3, model=None, ignore_agc=["fc"]):
         if clipping < 0.0:
             raise ValueError("Invalid clipping value: {}".format(clipping))
         if eps < 0.0:
@@ -144,10 +148,11 @@ class AGC(optim.Optimizer):
         # else:
         #     params = [{"params": params}]
 
-
-   
-        self.clip_params = clip_params
-        self.no_clip_params = no_clip_params
+        self.ignore_head = ignore_head
+        # if ignore_head:
+        #     self.clip_params = clip_params
+        # else:
+        #     self.clip_params = clip_params+no_clip_params
         self.agc_eps = eps
         self.clipping = clipping
         
@@ -211,7 +216,10 @@ class AGC(optim.Optimizer):
             with torch.enable_grad():
                 loss = closure()
 
-        for group in self.clip_params:
+        for group in self.param_groups:
+            if self.ignore_head:
+                if group['ClipGroupName'] = 'head':
+                    continue
             for p in group['params']:
                 if p.grad is None:
                     continue
@@ -246,7 +254,7 @@ class AGC(optim.Optimizer):
                 (in one case it does the step with a gradient of 0 and in the other it skips
                 the step altogether).
         """
-        for group in self.no_clip_params+self.clip_params:
+        for group in self.param_groups:
             # print(group)
             for p in group['params']:
                 # if 'params' in p:
@@ -261,7 +269,66 @@ class AGC(optim.Optimizer):
                             p.grad.requires_grad_(False)
                         p.grad.zero_()
 
+class CustomAGC:
+    def __init__(self,eps=1e-3,clipping=1e-2):
+        self.paramter_eps = eps
+        self.clipping = clipping
 
+    def unit_norm(self, x):
+        """ axis-based Euclidean norm"""
+        # verify shape
+        keepdim = True
+        dim = None
+
+        xlen = len(x.shape)
+        # print(f"xlen = {xlen}")
+
+        if xlen <= 1:
+            keepdim = False
+        elif xlen in (2, 3):  # linear layers
+            dim = 1
+        elif xlen == 4:  # conv kernels
+            dim = (1, 2, 3)
+        else:
+            dim = tuple(
+                [x for x in range(1, xlen)]
+            )  # create 1,..., xlen-1 tuple, while avoiding last dim ...
+
+        return x.norm(dim=dim, keepdim=keepdim, p=2.0)
+
+    def agc(self, p):
+        """clip gradient values in excess of the unitwise norm.
+        the hardcoded 1e-6 is simple stop from div by zero and no relation to standard optimizer eps
+        """
+
+        # params = [p for p in parameters if p.grad is not None]
+        # if not params:
+        #    return
+
+        # for p in params:
+        p_norm = self.unit_norm(p).clamp_(self.agc_eps)
+        g_norm = self.unit_norm(p.grad)
+
+        max_norm = p_norm * self.clipping
+
+        clipped_grad = p.grad * (max_norm / g_norm.clamp(min=1e-6))
+
+        new_grads = torch.where(g_norm > max_norm, clipped_grad, p.grad)
+        p.grad.detach().copy_(new_grads)
+
+    def clip_grad_adptive_(self,
+            parameters: _tensor_or_tensors):
+        if isinstance(parameters, torch.Tensor):
+            parameters = [parameters]
+        grads = [p.grad for p in parameters if p.grad is not None]
+        if len(grads) == 0:
+            return torch.tensor(0.)
+        first_device = grads[0].device
+        grouped_grads: Dict[Tuple[torch.device, torch.dtype], List[List[Tensor]]] \
+            = _group_tensors_by_device_and_dtype([[g.detach() for g in grads]])  # type: ignore[assignment]
+        for ((device, _), [grads]) in grouped_grads.items():
+            for g in grads:
+                self.agc(g)
 
 
 

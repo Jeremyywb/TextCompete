@@ -37,7 +37,7 @@ from TextCompete.metrics_loss.callbacks import (
      EarlyStopping, History, get_logger
     )
 from TextCompete.metrics_loss.utils import (
-     IntervalStrategy, AverageMeter,AGC,calcu_grad_norm,ModelSummary
+     IntervalStrategy, AverageMeter,AGC,calcu_grad_norm,ModelSummary,CustomAGC
     )
 from TextCompete.basemodel.models import (
      load_from_pretrained, CommonLitModelV1
@@ -185,7 +185,8 @@ def get_optim_scheduler(model,args):
     # grouped parameters
     # HEAD LAYER
     H_grouped_optimize_parameters = [
-        {"params": [p for n, p in model.named_parameters() if "backbone" not in n],
+        {"ClipGroupName":"head",
+         "params": [p for n, p in model.named_parameters() if "backbone" not in n],
          "lr": args.optimizer["HeadLR"], "weight_decay": 0.0} ]
     # ============================================================================
     
@@ -203,9 +204,11 @@ def get_optim_scheduler(model,args):
     if not args.trainer['HEADTrain']:
         for i,layer in enumerate(layers):
             C_grouped_optimize_parameters += [
-                { "params": [p for n, p in layer.named_parameters() if not namefiler(n)],
+                { "ClipGroupName":"LLDR",
+                  "params": [p for n, p in layer.named_parameters() if not namefiler(n)],
                   "weight_decay": lr_weight_decay, "lr": _LR*LLDR**i},
-                { "params": [p for n, p in layer.named_parameters() if namefiler(n)],
+                { "ClipGroupName":"LLDR",
+                  "params": [p for n, p in layer.named_parameters() if namefiler(n)],
                   "weight_decay": 0.0, "lr": _LR*LLDR**i}
                  ]
             # if i==0:
@@ -241,27 +244,17 @@ def get_optim_scheduler(model,args):
 
 
     if (not OptimName=="Ranger21"
-        and args.USE_ADAM_AGC):
+        and args.clipgrad['clipname'] =="AGC"):
         # DEBUGMSG+=  f"\noptimizer：USE_ADAM_AGC\n{DEBUGLINE}"
         
-        args.trainer['grad_clip'] = False
-        print("++++++++++++++USE AGC++++++++++++++")
-        if args.ignore_head:
-            optimizer = AGC(
-                C_grouped_optimize_parameters, 
-                H_grouped_optimize_parameters,
+        optimizer = AGC(
+                # C_grouped_optimize_parameters, 
+                # H_grouped_optimize_parameters,
                 optimizer,
-                clipping = 1e-2,
-                eps=1e-6
+                **args.clipgrad['AGC']
             )
-        else:
-            optimizer = AGC(
-                C_grouped_optimize_parameters+H_grouped_optimize_parameters, 
-                [],
-                optimizer,
-                clipping = 1e-2,
-                eps=1e-6
-            )#ignore_agc=['fc']
+
+ 
     #===============================================
     # poly
     scheduler = eval(schedGett)(optimizer,**schedPara)
@@ -273,18 +266,6 @@ def get_optim_scheduler(model,args):
     return ( optimizer, scheduler )
 # =====================================================================================================
 
-
-
-# ==================
-# new configs
-# gradient_accumulation_steps*train_batch = 32
-# gradient_accumulation_steps
-# use_accumulation: true
-# start_eval_step: 0.5
-# eval_steps: 0.2
-# optimizer: LR
-# ==divideable gradient_accumulation_steps
-# ==============================================================
     
 # ===========================
 # utils func
@@ -326,6 +307,9 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
     optimizer.zero_grad()
     model.zero_grad()
     all_best_predictions = None
+
+    if args.clipgrad['clipname'] == 'CustomAGC':
+        CUSCLIP = CustomAGC(**args.clipgrad['CustomAGC'])
 
 
     #=========================================================
@@ -447,25 +431,27 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
                     gradient_divider = last_gradient_divider
                 #=======================================================================
 
-
+                # =======================================================
+                # CLIPPING
                 accumulation_step_msg = {
                 "PreGradNorm":calcu_grad_norm(model.parameters())}
-
-                # if args.trainer['use_amp']:
-                #     scaler.unscale_(optimizer)
-                if args.trainer['grad_clip']:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                if (args.clipgrad['clipname'] == 'CustomAGC'
+                    and args.trainer['use_amp']):
+                    scaler.unscale_(optimizer)
+                    CUSCLIP.clip_grad_adptive_(model.parameters())
+                elif args.clipgrad['clipname'] == 'clipnorm':
+                    torch.nn.utils.clip_grad_norm_(
                              parameters = model.parameters(), 
-                             max_norm = args.trainer['max_norm']
+                             max_norm = args.clipgrad['clipnorm']['max_norm']
                     )
+
 
                 #=========================================================
                 # check for each clip step LR
                 accumulation_step_msg.update(
                     {"accum-LR":lr_scheduler.get_lr()[0],
-                    "GradNorm":grad_norm}
+                    "GradNorm":calcu_grad_norm(model.parameters())}
                     )
-                
                 
                 # #=========================================================
 
@@ -517,8 +503,6 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
                         all_eval_preditions,
                         this_eval_preditions
                     )
-
-
 
                     #=======================
                     # interval
