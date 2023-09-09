@@ -594,7 +594,7 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
             
         if (args.FullEpochStepEval
             and args.evaluation_strategy == IntervalStrategy.STEPS.value ):
-            pass
+            EARLY_STOPPING.should_training_stop = False
         else:
             if EARLY_STOPPING.should_training_stop:
                 break

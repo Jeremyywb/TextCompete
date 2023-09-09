@@ -222,3 +222,5 @@ class NLPPooling(nn.Module):
         gc.collect()
             # print(f"{self.pooling_name} not implemented")
         return output
+
+
