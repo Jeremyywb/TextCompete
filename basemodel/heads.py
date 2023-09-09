@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from torch.cuda.amp import autocast
 
 class CONVHEAD1(nn.Module):
     def __init__(self, finaldim,output_dim,init_head, config):
@@ -30,6 +31,7 @@ class CONVHEAD1(nn.Module):
     def _kaimin(self, module):
         if isinstance(module, nn.Conv1d):
             nn.init.kaiming_normal_(module.weight,mode='fan_in',nonlinearity='leaky_relu')
+    @autocast()
     def forward(self, x):
         output = self.fc(x.unsqueeze(-1)).squeeze(-1)
         var = torch.exp(self.varlayer(output))
@@ -59,7 +61,7 @@ class DENSEHEAD1(nn.Module):
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
-
+    @autocast()
     def forward(self, x):
         output = self.fc(x)
         var = torch.exp(self.varlayer(output))
@@ -92,6 +94,8 @@ class UniFormCONVHEAD1(nn.Module):
     def _kaimin(self, module):
         if isinstance(module, nn.Conv1d):
             nn.init.kaiming_normal_(module.weight,mode='fan_in',nonlinearity='leaky_relu')
+
+    @autocast()
     def forward(self, x):
         output = self.fc(x.unsqueeze(-1)).squeeze(-1)
         var = torch.exp(self.varlayer(output))
@@ -122,6 +126,7 @@ class UniFormDENSEHEAD1(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
+    @autocast()
     def forward(self, x):
         output = self.fc(x)
         var = torch.exp(self.varlayer(output))
@@ -136,7 +141,7 @@ class BINSSOFTMAX(nn.Module):
         self.config = config
         self.numbins = 16
         self.values_bins = nn.Parameter(
-            torch.tensor(np.arange(self.numbins)/self.numbins*7.0-2),
+            torch.tensor(np.arange(self.numbins)/self.numbins*7.0-2,dtype=torch.float32),
             requires_grad=False
         )
         
@@ -162,6 +167,7 @@ class BINSSOFTMAX(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
+    @autocast()
     def forward(self, x):
         output = self.fc(x)
         content =  torch.softmax(output[:,:self.numbins],dim=-1) *self.values_bins.unsqueeze(0)
@@ -207,6 +213,7 @@ class BNDENSEHEAD1(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
+    @autocast()
     def forward(self, x):
         output = self.fc(x)
         var = torch.exp(self.varlayer(output))

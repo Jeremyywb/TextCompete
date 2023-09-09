@@ -763,9 +763,12 @@ def kfold(args,summary_df, prompt_df):
     forward_signature = inspect.signature(model.forward)
     input_size = []
     for forward_parameter in forward_signature.parameters.keys():
+        print(forward_parameter)
         if forward_parameter in batch:
+            print(forward_parameter," with size 32,512")
             input_size.append((32,512))
         else:
+            print(forward_parameter," with size None")
             input_size.append(None)
     summary = ModelSummary(model, input_size, device)
     summary.summary()

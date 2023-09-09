@@ -218,7 +218,7 @@ class AGC(optim.Optimizer):
 
         for group in self.param_groups:
             if self.ignore_head:
-                if group['ClipGroupName'] = 'head':
+                if group['ClipGroupName'] == 'head':
                     continue
             for p in group['params']:
                 if p.grad is None:
@@ -269,8 +269,25 @@ class AGC(optim.Optimizer):
                             p.grad.requires_grad_(False)
                         p.grad.zero_()
 
+def normalize_gradient(x, use_channels=False, epsilon=1e-8):
+    """  use stdev to normalize gradients """
+    size = x.dim()
+    # print(f"size = {size}")
+
+    if (size > 1) and use_channels:
+        s = x.std(dim=tuple(range(1, size)), keepdim=True) + epsilon
+        # print(f"s = {s}")
+        x.div_(s)  # , keepdim=True)
+
+    elif torch.numel(x) > 2:
+        s = x.std() + epsilon
+        x.div_(s)  # , keepdim=True)
+    return x
+
+
+
 class CustomAGC:
-    def __init__(self,eps=1e-3,clipping=1e-2):
+    def __init__(self,eps=1e-3,clipping=1e-2, grad_norm=False):
         self.paramter_eps = eps
         self.clipping = clipping
 
@@ -306,7 +323,7 @@ class CustomAGC:
         #    return
 
         # for p in params:
-        p_norm = self.unit_norm(p).clamp_(self.agc_eps)
+        p_norm = self.unit_norm(p).clamp_(self.paramter_eps)
         g_norm = self.unit_norm(p.grad)
 
         max_norm = p_norm * self.clipping
@@ -320,15 +337,19 @@ class CustomAGC:
             parameters: _tensor_or_tensors):
         if isinstance(parameters, torch.Tensor):
             parameters = [parameters]
-        grads = [p.grad for p in parameters if p.grad is not None]
-        if len(grads) == 0:
-            return torch.tensor(0.)
-        first_device = grads[0].device
-        grouped_grads: Dict[Tuple[torch.device, torch.dtype], List[List[Tensor]]] \
-            = _group_tensors_by_device_and_dtype([[g.detach() for g in grads]])  # type: ignore[assignment]
-        for ((device, _), [grads]) in grouped_grads.items():
-            for g in grads:
-                self.agc(g)
+        for p in parameters:
+            if p.grad is None:
+                continue
+            self.agc(p)
+        # grads = [p.grad for p in parameters if p.grad is not None]
+        # if len(grads) == 0:
+        #     return torch.tensor(0.)
+        # first_device = grads[0].device
+        # grouped_grads: Dict[Tuple[torch.device, torch.dtype], List[List[Tensor]]] \
+        #     = _group_tensors_by_device_and_dtype([[g.detach() for g in grads]])  # type: ignore[assignment]
+        # for ((device, _), [grads]) in grouped_grads.items():
+        #     for g in grads:
+        #         self.agc(g)
 
 
 
@@ -356,7 +377,7 @@ class ModelSummary:
     def forward_hook(self, module, input, output, name):
         if 'backbone' in name:
           return
-        input_shapes = [f"{list(i.shape)}" for i in input]
+        input_shapes = [f"{list(i.shape)}" for i  in input if i is not None]
         input_shapes = ', '.join(input_shapes)
         num_params = sum(p.numel() for p in module.parameters())
         output_shape = list(output[0].shape)

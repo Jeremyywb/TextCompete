@@ -12,9 +12,6 @@ from TextCompete.train_utils import kfold
 #  NOTEBOOK
 # ======================
 
-
-
-
 #=======================
 # model version logger
 #=======================

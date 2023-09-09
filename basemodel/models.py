@@ -178,7 +178,6 @@ class CommonLitModelV1(nn.Module):
             poolout = self.pool_ly(hidden_states,summary_smask)
             del summary_smask
         del hidden_states
-
         out = self.HEAD( poolout )
         del poolout
 
