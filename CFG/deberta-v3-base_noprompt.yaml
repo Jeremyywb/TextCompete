@@ -290,6 +290,7 @@ trainer:
 # do_train: true
 # =========================================================
 
+FullEpochStepEval: false
 start_eval_step: 0.5
 eval_steps: 0.1
 evaluation_strategy: epoch

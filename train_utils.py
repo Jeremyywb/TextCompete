@@ -414,7 +414,8 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
 
 
             #=========================================================
-            status_bar(step, num_train_steps)
+            if HISTORY._verbose==1:
+                status_bar(step, num_train_steps)
             HISTORY.on_step_end(loss, target)
 
             del target,batch, pred, n_target
@@ -584,15 +585,19 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
             HISTORY._reset_to_next_eval()
             HISTORY._save_checkpoint(model, EARLY_STOPPING)
             model.train()
-        vis_realandpredict(f'Fold {args.fold+1} Epoch {e+1} Preditct VIS',all_references,all_predictions)
+        if HISTORY._verbose==1:
+            vis_realandpredict(f'Fold {args.fold+1} Epoch {e+1} Preditct VIS',all_references,all_predictions)
         del all_predictions
         HISTORY.on_epoch_end()
 
         # print(DEBUGCONTAIN.SINCE_last_accumulated_steps)
             
-
-        if EARLY_STOPPING.should_training_stop:
-            break
+        if (args.FullEpochStepEval
+            and args.evaluation_strategy == IntervalStrategy.STEPS.value ):
+            pass
+        else:
+            if EARLY_STOPPING.should_training_stop:
+                break
         del scaler
         torch.cuda.empty_cache()
     msg = (
@@ -602,8 +607,9 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
         '''\n#=========================================================================\n\n'''
     .format(args.fold+1, EARLY_STOPPING._best_score ,HISTORY.completed_steps  )
     )
-    print(msg)
-    LOGGER.info(msg)
+    if HISTORY._verbose==1:
+        print(msg)
+        LOGGER.info(msg)
     
     return all_references, all_best_predictions
 
@@ -750,29 +756,29 @@ def kfold(args,summary_df, prompt_df):
     #================================================
 
     
-    # ==========================================================
-    # model head summary
-    import inspect
-    args.fold = 0
-    tokenizer, model = load_from_pretrained(args)
-    model = model.to(device)
-    print(model.HEAD)
-    trainloader, evalloader = get_loader( args, tokenizer,summary_df,prompt_df, 0 )
-    for batch in trainloader:
-        break
-    forward_signature = inspect.signature(model.forward)
-    input_size = []
-    for forward_parameter in forward_signature.parameters.keys():
-        print(forward_parameter)
-        if forward_parameter in batch:
-            print(forward_parameter," with size 32,512")
-            input_size.append((32,512))
-        else:
-            print(forward_parameter," with size None")
-            input_size.append(None)
-    summary = ModelSummary(model, input_size, device)
-    summary.summary()
-    del tokenizer, model,trainloader, evalloader,forward_signature,batch
+    # # ==========================================================
+    # # model head summary
+    # import inspect
+    # args.fold = 0
+    # tokenizer, model = load_from_pretrained(args)
+    # model = model.to(device)
+    # print(model.HEAD)
+    # trainloader, evalloader = get_loader( args, tokenizer,summary_df,prompt_df, 0 )
+    # for batch in trainloader:
+    #     break
+    # forward_signature = inspect.signature(model.forward)
+    # input_size = []
+    # for forward_parameter in forward_signature.parameters.keys():
+    #     print(forward_parameter)
+    #     if forward_parameter in batch:
+    #         print(forward_parameter," with size 32,512")
+    #         input_size.append((32,512))
+    #     else:
+    #         print(forward_parameter," with size None")
+    #         input_size.append(None)
+    # summary = ModelSummary(model, input_size, device)
+    # summary.summary()
+    # del tokenizer, model,trainloader, evalloader,forward_signature,batch
     #======================================================================== 
 
     oof_references, oof_preditions = None, None

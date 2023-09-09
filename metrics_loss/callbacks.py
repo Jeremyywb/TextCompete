@@ -164,8 +164,9 @@ class History(object):
             f"   ESStrategy          {self.args.es_strategy }\n"
             f'{_line}\n'
         )
-        self.logger.info(msg )
-        print(msg)
+        if self._verbose==1:
+            self.logger.info(msg )
+            print(msg)
 
         return (
                 self.num_train_steps,
@@ -232,7 +233,8 @@ class History(object):
 
 
     def _reset_to_next_eval(self):
-        print(f"\nEpoch {self.epoch}/{self._epochs}")
+        if self._verbose==1:
+            print(f"\nEpoch {self.epoch}/{self._epochs}")
         self.toNex_start_time = time.time()
         self.eval_inner_losses.reset()
         self.since_last_evaled_step = 0
@@ -255,7 +257,12 @@ class History(object):
                 PreAvgGrad = "None"
             else:
                 MaxGrad = int(stack_to_np.cpu().numpy().max())
-                AvgGrad = int(stack_to_np.cpu().numpy().mean()) 
+                AvgGrad = stack_to_np.cpu().numpy().mean()
+                if len(str(int(AvgGrad)))<4:
+                    AvgGrad = str(AvgGrad)[:4]
+                else:
+                    AvgGrad = int(AvgGrad)
+                
                 PreAvgGrad = int(stack_to_np2.cpu().numpy().max())                
         else:
             MaxGrad = 'no'
@@ -324,7 +331,9 @@ class History(object):
     def on_epoch_end(
         self,
     ):
-        LR_HIST(self.accum_LR)
+        # if self._verbose==1:
+        #     LR_HIST(self.accum_LR)
+        pass
 
     def on_step_end(
         self,

@@ -198,7 +198,7 @@ class NLPPooling(nn.Module):
         elif self.pooling_name not in ("CLS",''):
             self.pooler = eval(self.pooling_name)(**self.params)
 
-        print(f'Pooling: {self.pooling_name}')
+        # print(f'Pooling: {self.pooling_name}')
 
     def forward(self, last_hidden_state, attention_mask_or_labelid):
 
