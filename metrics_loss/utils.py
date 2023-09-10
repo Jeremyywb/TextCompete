@@ -492,4 +492,3 @@ def get_lgb_feature(args, model, evalloader, device ):
     np.savez(f"{featureName}_LGBFEAT.npz", feature=result, target=references)
 
 
-

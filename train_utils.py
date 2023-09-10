@@ -41,9 +41,12 @@ from TextCompete.metrics_loss.utils import (
     )
 
 
-from TextCompete.basemodel.models import (
-     load_from_pretrained, CommonLitModelV1
+from TextCompete.basemodel.models import CommonLitModelV1
+from TextCompete.basemodel.modelloader import (
+     load_from_pretrained
     )
+
+
 from TextCompete.metrics_loss.ranger21 import Ranger21
 
 import matplotlib.pyplot as plt
