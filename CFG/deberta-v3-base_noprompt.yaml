@@ -272,6 +272,7 @@ trainer:
   use_amp: true
   epochs: 4
   gradient_checkpointing: true
+  export_lgb_feature: false
 
 
 

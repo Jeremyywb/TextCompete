@@ -182,6 +182,7 @@ def collate(inputs):#, sentmask):
                     inputs[k] = inputs[k][:, :_mask_len]
     return inputs
 
+
 def batch_to_device(batch, device):
     for k, v in batch.items():
         batch[k] = v.to(device)

@@ -7,10 +7,11 @@ import time
 import math
 import warnings
 from typing import Union, Iterable, List, Dict, Tuple, Optional
-
+import numpy as np
 import torch
 from torch import Tensor, inf
 from torch.utils._foreach_utils import _group_tensors_by_device_and_dtype, _has_foreach_support
+from TextCompete.data_utils.dataset import batch_to_device, collate
 
 _tensor_or_tensors = Union[torch.Tensor, Iterable[torch.Tensor]]
 
@@ -427,3 +428,68 @@ class ModelSummary:
         print("=" * summlen)
 
         # print("=" * summlen)
+
+def input_ids_to_mask(args, input_ids, device):
+        # 将要查找的值作为张量，这里是[1, 2]
+    values_to_find = torch.tensor([1, 2]).to(device)
+
+    # 创建一个与input_ids相同形状的布尔掩码，标记匹配的位置为True
+    sepmask = torch.isin(input_ids, values_to_find)
+
+    # 计算累积和
+    cumulative_sum = torch.cumsum(sepmask, dim=1)
+
+    # 将最后一个累积和值设置为0
+    cumulative_sum[cumulative_sum == cumulative_sum[:, -1].unsqueeze(1)] = 0
+
+    # 如果add_question为True，仅保留第二个分隔符之后的位置
+    if args.data['prepare']['add_question']:
+        mask = (cumulative_sum > 1).to(torch.int)
+    else:
+        mask = (cumulative_sum > 0).to(torch.int)
+
+    # 将分隔符位置的位置标记为0
+    mask = mask * (~sepmask).to(torch.long)
+    return mask
+
+
+def get_lgb_feature(args, model, evalloader, device ):
+    model.eval()
+    state = torch.load(args.foldModel,
+            map_location=device
+                )
+    model.load_state_dict(state)
+    del state
+    result = None
+    references = None
+    for _, batch in enumerate(evalloader):
+        target = batch.pop('target')
+        batch = collate(batch)
+        batch = batch_to_device(batch, device)
+        with torch.no_grad():
+            embeddings = model.backbone(
+                input_ids = batch['summary_input_ids'],
+                attention_mask = batch['summary_attention_mask'])[1][0]
+            pool_mask = input_ids_to_mask(args, batch['summary_input_ids'], device)
+
+            input_mask_expanded = pool_mask.unsqueeze(-1).expand(embeddings.size()).float()
+            sum_embeddings = torch.sum(embeddings * input_mask_expanded, 1)
+            sum_mask = input_mask_expanded.sum(1)
+            sum_mask = torch.clamp(sum_mask, min=1e-9)
+            mean_embeddings = sum_embeddings / sum_mask
+
+        if result is None: 
+            result = mean_embeddings.detach().cpu().numpy()
+        else:
+            result = np.append(result, mean_embeddings.detach().cpu().numpy(), axis=0)
+        if references is None: 
+            references = target.detach().cpu().numpy()
+        else:
+            references = np.append(references, target.detach().cpu().numpy(), axis=0)
+        del embeddings,pool_mask,input_mask_expanded,sum_embeddings,sum_mask,mean_embeddings
+
+    featureName = args.foldModel.split('.')[0]
+    np.savez(f"{featureName}_LGBFEAT.npz", feature=result, target=references)
+
+
+

@@ -37,8 +37,10 @@ from TextCompete.metrics_loss.callbacks import (
      EarlyStopping, History, get_logger
     )
 from TextCompete.metrics_loss.utils import (
-     IntervalStrategy, AverageMeter,AGC,calcu_grad_norm,ModelSummary,CustomAGC
+     IntervalStrategy, AverageMeter,AGC,calcu_grad_norm,ModelSummary,CustomAGC,get_lgb_feature
     )
+
+
 from TextCompete.basemodel.models import (
      load_from_pretrained, CommonLitModelV1
     )
@@ -325,6 +327,8 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
         # each epcoh init scaler
         if args.trainer['use_amp'] and ("cuda" in str(device)):
             scaler = amp.GradScaler(enabled=True)#apex
+        else:
+            print("Not USEING AMP | NO GPU")
         #=====================================================
         (this_eval_targets, 
          this_eval_preditions,
@@ -595,6 +599,12 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
         if (args.FullEpochStepEval
             and args.evaluation_strategy == IntervalStrategy.STEPS.value ):
             EARLY_STOPPING.should_training_stop = False
+            EARLY_STOPPING._counter = 0
+            # state = torch.load(args.foldModel,
+            #      map_location=device
+            #     )
+            # model.load_state_dict(state)
+            # del state
         else:
             if EARLY_STOPPING.should_training_stop:
                 break
@@ -847,8 +857,13 @@ def kfold(args,summary_df, prompt_df):
         oof_references = _append(oof_references,val_references)
         oof_preditions = _append(oof_preditions,val_predictions)
         vis_realandpredict(f'Fold {args.fold+1} Best Preditct VIS',val_references,val_predictions)
-        del model, trainloader, evalloader,optimizer, lr_scheduler
-    
+        del  trainloader, optimizer, lr_scheduler
+        gc.collect()
+        torch.cuda.empty_cache()
+        if args.trainer['export_lgb_feature']:
+            get_lgb_feature(args, model, evalloader, device )
+
+        del model, evalloader
 
 
     ver_log_met = get_score(args, 'oofloss', oof_references, oof_preditions)

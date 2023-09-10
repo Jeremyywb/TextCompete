@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Callable, Optional, Tuple
 from logging import getLogger, INFO, StreamHandler, FileHandler, Formatter
-
+import matplotlib.pyplot as plt
 import math
 import numpy as np
 import sys
@@ -89,6 +89,8 @@ class History(object):
         self._epochs = args.trainer['epochs']
         self.accum_LR = []
         self.logger = LOGGER
+        self.foldloss = []
+        self.foldeval = []
 
 
 
@@ -190,6 +192,33 @@ class History(object):
             print(msg)
             self.logger.info( msg  )
 
+    def loss_steps_vis(self):
+        f, ax = plt.subplots(figsize=(8, 4.5))
+        ax.tick_params(color='green', labelcolor='#525B56')
+        for spine in ['right', 'top']:
+            ax.spines[spine].set_visible(False)
+            ax.spines[spine].set_edgecolor('#2A3457')
+        ax.grid(which="major", color="lightgrey", linestyle="-",  linewidth=0.5, alpha=0.5)
+        plt.title("LOSS History \n")
+        plt.plot(range(len(self.foldloss)),self.foldloss,
+                 '-o', 
+                 color="#4285F4",
+                 markeredgecolor='#4285F4',
+                 linewidth=2
+                 ,markerfacecolor='#4285F4', 
+                 label="trainloss")
+        plt.plot(range(len(self.foldeval)),self.foldeval,
+                 '-o', 
+                 color="red",
+                 markeredgecolor='red',
+                 linewidth=2
+                 ,markerfacecolor='red', 
+                 label="valloss")
+        plt.legend(loc='upper right')
+        plt.xlabel("steps")
+        plt.ylabel("valloss")
+        plt.show()
+
     def on_train_begin(
         self,
         logs: Optional[Dict[str, Any]] = None
@@ -241,6 +270,8 @@ class History(object):
         self.eval_interval_grad_norms = {"accum-LR":[], "GradNorm":[], "PreGradNorm":[]}
 
     def on_next_eval(self,step,msg):
+        self.foldloss.append(msg['glbloss'])
+        self.foldeval.append(msg['valloss'])
         self.accum_LR += self.eval_interval_grad_norms['accum-LR']
         LR = self.accum_LR[-1]
         if self._verbose==0:
@@ -331,9 +362,11 @@ class History(object):
     def on_epoch_end(
         self,
     ):
-        # if self._verbose==1:
-        #     LR_HIST(self.accum_LR)
-        pass
+        if self._verbose==1:
+            # LR_HIST(self.accum_LR)
+            self.loss_steps_vis()
+        
+
 
     def on_step_end(
         self,
@@ -356,4 +389,5 @@ class History(object):
         #on step end
         batch_size = target.size(0)
         self.eval_inner_losses.update(loss.item(), batch_size)
+
         #=====================================================

@@ -22,6 +22,7 @@ HEAD_MAPPER = {
     'uniform_dense_01':UniFormDENSEHEAD1,
     'binssoftmax_01':BINSSOFTMAX,
     'bndense_01':BNDENSEHEAD1,
+    'binssoftmax2conv1d':BINSOFTMAX2CONV1D,
 }
 
 def top_n_layer_freeze(module,n):
