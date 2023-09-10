@@ -84,3 +84,9 @@ def download_configs(args):
     tokenizer.save_pretrained(args.tokenizer_path)
     torch.save(config, args.config_path)
     del tokenizer,config
+
+
+
+
+
+

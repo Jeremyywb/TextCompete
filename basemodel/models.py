@@ -1,13 +1,10 @@
 # =============================
 #  Model
 # =============================
-
-
 import torch
 import torch.nn as nn
 from transformers import AutoConfig, AutoModel,AutoTokenizer
 import torch.utils.checkpoint
-from torch.cuda.amp import autocast
 import torch.nn.functional as F
 from TextCompete.basemodel.pooling import NLPPooling
 from W_Informer.models.domian_encoder import PromptAwareEncoder,ConvPoolLayer
@@ -22,7 +19,6 @@ HEAD_MAPPER = {
     'uniform_dense_01':UniFormDENSEHEAD1,
     'binssoftmax_01':BINSSOFTMAX,
     'bndense_01':BNDENSEHEAD1,
-    'binssoftmax2conv1d':BINSOFTMAX2CONV1D,
 }
 
 def top_n_layer_freeze(module,n):
@@ -50,8 +46,6 @@ class CommonLitModelV1(nn.Module):
         REINIT_LAYERS,
         init_head,
         output_dim,
-        pretrained,
-        download,
         headname,
         config_path=None,
         pooling_params={},
@@ -59,32 +53,14 @@ class CommonLitModelV1(nn.Module):
                         ):
         super().__init__()
 
-        # ============================================
-        # backbone setting
-        # BUGGGG : AutoModel.from_config init randomly
-        # ============================================
-        if config_path is None:
-            self.config = AutoConfig.from_pretrained(download, output_hidden_states=True)
-            self.config.hidden_dropout = 0.
-            self.config.hidden_dropout_prob = 0.
-            self.config.attention_dropout = 0.
-            self.config.attention_probs_dropout_prob = 0.
-        else:
-            self.config = torch.load(config_path)
-        # self.config = torch.load(config_path)
-        # self.config.hidden_dropout = 0.
-        # self.config.hidden_dropout_prob = 0.
-        # self.config.attention_dropout = 0.
-        # self.config.attention_probs_dropout_prob = 0.
-        if pretrained:
-            self.backbone = AutoModel.from_pretrained(download, config=self.config)
-        else:
-            self.backbone = AutoModel.from_config(self.config)
+        self.config = torch.load(config_path)
+        self.config.hidden_dropout = 0.
+        self.config.hidden_dropout_prob = 0.
+        self.config.attention_dropout = 0.
+        self.config.attention_probs_dropout_prob = 0.
+        self.backbone = AutoModel.from_config(self.config)
         if gradient_checkpointing:
             self.backbone.gradient_checkpointing_enable()
-
-        # ============================================
-        # init para
         self.span_pool = span_pool
         self.multilpool = multilpool
         self.activation = activation
@@ -96,15 +72,8 @@ class CommonLitModelV1(nn.Module):
         CrosAttPara['d_ff'] = CrosAttPara['d_model']*4
         CrosenEoderPara['attParameter'].update(CrosAttPara)
         CrosenEoderPara['downConvPara'].update(CrosConvPara)
-        # ============================================
-
-        # ============================================
-        # heads..prompt encoder
-        if self.add_prompt:
-            self.encoders = PromptAwareEncoder(**CrosenEoderPara)
-
-        # ============================================
-        # heads..pooling
+        self.encoders = PromptAwareEncoder(**CrosenEoderPara)
+        
         self.pooling_params = pooling_params
         self.pooling_params.update({"in_features":self.config.hidden_size,
                                     "out_features":self.config.hidden_size
@@ -125,10 +94,9 @@ class CommonLitModelV1(nn.Module):
         else:
             finaldim = self.pooling_params['out_features']
 
-        # ============================================
-        # heads..HEAD proj
-        self.HEADCLASS = HEAD_MAPPER[headname]
-        self.HEAD = self.HEADCLASS( finaldim,output_dim, init_head, self.config )
+        # self.norm = nn.LayerNorm(self.config.hidden_size)
+        # self.norm2= nn.LayerNorm(self.config.hidden_size)
+        self.HEAD = HEAD_MAPPER[headname]( finaldim,output_dim, init_head, self.config )
 
         if freezing>0:
             top_n_layer_freeze(self.backbone,freezing)
@@ -139,7 +107,6 @@ class CommonLitModelV1(nn.Module):
                     # self._xavier_init(module)
                 layer.apply(self._init_weights)
 
-    @autocast()
     def forward(
         self, 
         summary_input_ids,
@@ -180,15 +147,20 @@ class CommonLitModelV1(nn.Module):
             poolout = self.pool_ly(hidden_states,summary_smask)
             del summary_smask
         del hidden_states
+
         out = self.HEAD( poolout )
         del poolout
 
         return out
 
 
+
+
+
+
 # ============================================================
 # load from pretrained tokenizer/model for train and inference
-def load_from_trained(args):
+def load_from_pretrained(args):
     """Load the pretrained model and tokenizer."""
 
     # In distributed training, the .from_pretrained methods guarantee that only
@@ -242,6 +214,41 @@ def load_from_trained(args):
                 )
         model.load_state_dict(state)
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
+    if args.do_train:
+        from torch.cuda.amp import autocast
+        def autocast_forward(cls):
+            class NewClass(cls):
+                def __init__(self, *args, **kwargs):
+                    super(NewClass, self).__init__(*args, **kwargs)
+                @autocast()
+                def forward(self, *args, **kwargs):
+                    return super(NewClass, self).forward(*args, **kwargs)
+            
+            return NewClass
+
+        headname = args.model['params']['headname']
+        CommonLitModelV1Train = autocast_forward(CommonLitModelV1)
+        CommonLitModelV1Train.HEADCLASS = autocast_forward(HEAD_MAPPER[headname])
+
+
+        model_parameters.update({"pretrained":True,
+                              "config_path":None })#影响model中 dropout配置
+        model =  CommonLitModelV1Train(**model_parameters)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
     return tokenizer, model
+
+def download_configs(args):
+    tokenizer = AutoTokenizer.from_pretrained(args.download)
+    config = AutoConfig.from_pretrained(args.download, output_hidden_states=True) 
+    tokenizer.save_pretrained(args.tokenizer_path)
+    torch.save(config, args.config_path)
+    del tokenizer,config
+
+
+
+
+
+
+
 
 
