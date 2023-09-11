@@ -29,9 +29,10 @@ def get_logger(args,LogFileName):
 # ======================================================
 # EarlyStopping and History
 class EarlyStopping:
-    def __init__(self, patience=7,max_minze=True, delta=0):
+    def __init__(self, patience=7,max_minze=True, delta=0, verbose=1):
         self._patience = patience
         self._counter = 0
+        self.verbose = verbose 
         self.should_training_stop = False
         self._improved = None
         self._MAXIMIZE = max_minze
@@ -48,7 +49,8 @@ class EarlyStopping:
     def __call__(self, score):
         self._improved = False
         if self._best_score*self._mode <  score*self._mode :
-            print('\n'+"**********"*5+
+            if self.verbose==1:
+                print('\n'+"**********"*5+
                 f"\n<BEST SCORED {score:.4f} ! IMPROVED FROM {self._best_score:.4f}>\n"+
                 "**********"*5
                 )
@@ -59,7 +61,8 @@ class EarlyStopping:
             self._counter += 1
             if self._counter > self._patience:
                 self.should_training_stop = True
-                print(f'******EarlyStopping: NOIMPROVMENT for {self._counter} steps out of {self._patience}******')
+                if self.verbose==1:
+                    print(f'******EarlyStopping: NOIMPROVMENT for {self._counter} steps out of {self._patience}******')
 
 
 
@@ -188,9 +191,9 @@ class History(object):
             else:
                 torch.save(model.state_dict(),self.args.foldModel)
                 msg = f"***Saving {self.args.foldModel.split('/')[-1]}, best score:{EARLY_STOPPING._best_score} ***"
-                
-            print(msg)
-            self.logger.info( msg  )
+            if self._verbose==1:
+                print(msg)
+                self.logger.info( msg  )
 
     def loss_steps_vis(self):
         f, ax = plt.subplots(figsize=(8, 4.5))

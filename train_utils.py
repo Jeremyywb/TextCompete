@@ -303,7 +303,8 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
     patience) = HISTORY._prepare_args(trainloader)
 
 
-    EARLY_STOPPING = EarlyStopping(patience=patience,max_minze=args.MAXIMIZE) 
+    EARLY_STOPPING = EarlyStopping(patience=patience,max_minze=args.MAXIMIZE,
+        verbose = args.verbose)
     HISTORY.on_train_begin(logs = {"start_time":time.time()})
 
     # if args.trainer['use_amp'] and ("cuda" in str(device)):
@@ -746,7 +747,7 @@ def gradhook(name):
     return hookfn
 # ======================================================================
 
-def kfold(args,summary_df, prompt_df):
+def kfold(args,summary_df, prompt_df, verbose):
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
 
     #=================================
@@ -797,13 +798,17 @@ def kfold(args,summary_df, prompt_df):
     LOGGER =  get_logger(args,'train')
     lines = "#==============================================="
     msg = "\n\n==========================================>>>>>>STARTING>>>>>>==========================================\n\n"
-    LOGGER.info(msg)
-    print(msg)
+    
+    if verbose==1:
+        LOGGER.info(msg)
+        print(msg)
+    
     reset = True
     for fold in args.selected_folds:
         msg = "\n\n{0}\nFOLD {1}/{2}\n{3}".format(lines,fold+1,len(args.selected_folds), lines )
-        LOGGER.info(msg)
-        print(msg)
+        if verbose==1:
+            LOGGER.info(msg)
+            print(msg)
         args.fold = fold
         tokenizer, model = load_from_pretrained(args)
         lossNames = args.loss['losses']
@@ -858,7 +863,8 @@ def kfold(args,summary_df, prompt_df):
         
         oof_references = _append(oof_references,val_references)
         oof_preditions = _append(oof_preditions,val_predictions)
-        vis_realandpredict(f'Fold {args.fold+1} Best Preditct VIS',val_references,val_predictions)
+        if verbose==1:
+            vis_realandpredict(f'Fold {args.fold+1} Best Preditct VIS',val_references,val_predictions)
         del  trainloader, optimizer, lr_scheduler
         gc.collect()
         torch.cuda.empty_cache()

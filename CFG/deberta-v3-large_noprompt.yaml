@@ -1,0 +1,312 @@
+competition : CommonLit - Evaluate Student Summaries
+name : deberta-v3-large
+version : CommonLitModelV1
+download: microsoft/deberta-v3-large
+seed : 42
+wandb : false
+device : 0
+
+
+#===========================
+# platform
+#===========================
+
+platform : 
+  isgoogle : false
+  google : 
+    dpath : /content/gdrive/MyDrive/tmpdata/
+    opath : /content/gdrive/MyDrive/output/
+  featurize : 
+    dpath : /home/featurize/data/
+    opath : /home/featurize/work/ka-CESS-COMP/work/output/
+
+
+#===========================
+# data process
+# 
+# dataset['pooling_name']
+# args.model['pooling_params']['pooling_name']
+#===========================
+
+
+data:
+  prepare:
+    prompt_max_len: 512
+    add_question: false
+    experiment: false
+    experiment_rate: 0.5
+  dataset:
+    pool_question: false
+    pool_middle_sep: false
+    target_cols: ['content', 'wording']
+    text_max_len : 512
+    prompt_text_max_len: 1024
+
+
+
+
+selected_folds: [2]
+
+#===========================
+# model
+transform_target: false
+split_n_components: 1
+
+#===========================
+#losses a,b,c ==> losses.split(",")
+# CommonLitLoss
+# CommonLitCRMSELoss
+# CommonLitHuber 
+# GaussianNLLLoss
+# SmoothL1Loss
+
+loss:
+  losses: SmoothL1Loss
+  CommonLitLoss:
+    loss_name: RMSELoss
+    loss_param:
+      beta: 1
+      eps: 0.000001
+    reduction: none
+    weights:  [0.55,0.45]
+  CommonLitCRMSELoss:
+    loss_name: CRMSELoss
+    loss_param:
+      eps: 0.000001
+    reduction: none
+    weights:  [0.55,0.45]
+  CommonLitHuber:
+    loss_name: SmoothL1HuberLoss
+    loss_param:
+      beta: 1
+      reduction: mean
+    reduction: none
+    weights: [0.55,0.45]
+
+  GaussianNLLLoss:
+    eps: 0.000001
+    reduction: mean
+  SmoothL1Loss:
+    reduction: mean
+    beta: 1
+
+model:
+  target_cols : ['content', 'wording']
+
+  # ====================================
+  # max_len: 544
+  # max_len_eval: 1024
+  # ====================================
+  # model params
+  params:
+    # use_mdn: false
+    span_pool: false
+    add_prompt: false
+    gradient_checkpointing: true
+    # multilfc: false
+    multilpool: false
+    activation: none
+    freezing: 4
+    REINIT_LAYERS: 0
+    init_head: true
+    headname: bndense_01
+    output_dim: 2
+    config_path:
+  CrosenEoderPara:
+    mask_flag : false
+    numcross : 3
+    numconv1: 0
+    d_model : 762
+    attParameter : {}
+    downConvPara : {}
+  CrosAttPara:
+    mask_flag : false
+    d_model: 768
+    d_ff: 768
+    n_heads: 8
+    factor: 20
+    dropout: 0.1
+    attType: prob
+    activation: relu
+  CrosConvPara:
+    c_in: 768
+    d_model: 768
+    kernel_size: 5
+  pooling_params :
+    pooling_name: MeanPoolingA
+    params : {}
+  spans_pooling_params :
+    pooling_name : AttentionHead
+    params : {}
+  spans: ''
+  # ====================================
+
+#===========================
+# optimizer
+# LLDR : <1. if(LLDR=1) means no lldr
+#===========================
+# torchAdamW
+# transformersAdamW
+#===========================
+# Debiasing Omission In BertADAM
+# Adamw
+#===========================
+
+
+clipgrad:
+  clipname: CustomAGC
+  CustomAGC:
+    eps: 0.001
+    clipping: 0.01
+  clipnorm:
+    max_norm: 1000
+  AGC:
+    ignore_head: false
+    clipping: 0.005
+    eps: 0.000001
+
+  
+# AGC
+# clipnorm
+# CustomAGC
+# NONE
+
+lambda_l1: 0.0
+optimizer:
+  name : torchAdamW
+  LLDR: 0.9
+  HeadLR: 0.00002
+  torchAdamW : 
+    lr: 0.00002
+    betas: [0.9, 0.999]
+    eps: 0.000001
+    weight_decay: 0.01
+  transformersAdamW : 
+    lr: 0.00002
+    eps: 0.000001
+    betas: [0.9, 0.999]
+    weight_decay: 0.01
+    correct_bias: false
+
+
+
+#===========================
+# scheduler
+# poly,linear,cosine,OneCycleLR
+# poly:get_polynomial_decay_schedule_with_warmup
+# linear:get_linear_schedule_with_warmup
+# cosine:get_cosine_schedule_with_warmup
+# OneCycleLR:OneCycleLR
+#===========================
+
+scheduler:
+  name: cosine
+  getter: get_cosine_schedule_with_warmup
+  warmup: 0.0
+  # ===================
+  # parameters
+  poly : 
+    lr_end: 0.0000007
+    power: 3
+  linear:
+    last_epoch: -1
+  cosine:
+    num_cycles: 0.5
+  onecycle:
+    max_lr: 0.00002
+    pct_start: 0.0
+
+  
+
+#===========================
+# train_loader
+#===========================
+
+# ======================
+# sampler
+# StratifiedSampler
+# RandomSampler
+Sampler: noo
+train_loader:
+  batch_size: 32
+  drop_last: true
+  num_workers: 4
+  pin_memory: true
+  shuffle: true
+
+#===========================
+# val_loader
+#===========================
+
+
+val_loader:
+  batch_size: 64
+  drop_last: false
+  num_workers: 4
+  pin_memory: true
+  shuffle: false
+  drop_last: false
+
+test_loader:
+  batch_size: 16
+  drop_last: false
+  num_workers: 1
+  pin_memory: true
+  shuffle: false
+#===========================
+# trainer
+# max_norm : 
+#   init : 1000 
+# if unscale init be grater
+# 10000
+#   experiment :10*batch_size 
+#===========================
+
+
+verbose: 1
+trainer:
+  HEADTrain: false
+  INITFromHead: false
+  gradient_accumulation_steps: 1
+  use_accumulation: true
+  use_amp: true
+  epochs: 4
+  gradient_checkpointing: true
+  export_lgb_feature: false
+
+
+
+
+#===========================
+# callbacks
+#===========================
+
+# =============================
+# start_eval_step: 0.5
+# eval_steps: 0.2
+# ==divideable gradient_accumulation_steps
+# evaluation_strategy:no|steps|epoch
+# es_strategy: half|one_third|a_quarter|one_fifth|epochs
+# do_inference: false
+# do_train: true
+# =========================================================
+
+FullEpochStepEval: false
+start_eval_step: 0.5
+eval_steps: 0.1
+evaluation_strategy: epoch
+es_strategy: epochs
+do_inference: false
+do_train: true
+MAXIMIZE: false
+
+callbacks:
+  stepwise: true
+  save : true
+  steploss : 
+    tqdm : true
+    nprint : 3 
+  metric_track: valloss
+  mode: min
+  top_k: 1
+  start_eval_epoch : 0
