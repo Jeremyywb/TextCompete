@@ -263,7 +263,7 @@ def load_from_pretrained(args):
         model_parameters.update({"pretrained":True,
                               "config_path":None })#影响model中 dropout配置
         model =  CommonLitModelV1Train(**model_parameters)
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
+        tokenizer = AutoTokenizer.from_pretrained(args.download)
     return tokenizer, model
 
 def download_configs(args):

@@ -40,11 +40,10 @@ from TextCompete.metrics_loss.utils import (
      IntervalStrategy, AverageMeter,AGC,calcu_grad_norm,ModelSummary,CustomAGC,get_lgb_feature
     )
 
-
-from TextCompete.basemodel.models import CommonLitModelV1
-from TextCompete.basemodel.modelloader import (
-     load_from_pretrained
+from TextCompete.basemodel.models import (
+    CommonLitModelV1,load_from_pretrained
     )
+
 
 
 from TextCompete.metrics_loss.ranger21 import Ranger21
