@@ -11,6 +11,7 @@ import os
 import gc
 import json
 from torch import autocast
+import seaborn as sns
 from pathlib import Path
 from transformers import AdamW as transformersAdamW
 from torch.optim  import AdamW as torchAdamW
@@ -78,27 +79,32 @@ def split_data_into_components(data, num_components,max_iter):
 
 # ==============================================================
 # visual predition
-def vis_realandpredict(suptitle,references,preditions):
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(13, 5))
-    axes[0, 0].set_title(f'references content', fontsize=12,  fontstyle='italic')
-    axes[0, 0].hist(references[:,0],bins=100)
-    axes[0, 0].set_xlim(-2, 5)
-    
-    axes[0, 1].set_title(f'references wording', fontsize=12,  fontstyle='italic')
-    axes[0, 1].hist(references[:,1],bins=100)
-    axes[0, 1].set_xlim(-2, 5)
-    
-    axes[1, 0].set_title(f'preditions content', fontsize=12, fontstyle='italic')
-    axes[1, 0].hist(preditions[:,0],bins=100)
-    axes[1, 0].set_xlim(-2, 5)
-    
-    axes[1, 1].set_title(f'preditions wording', fontsize=12,fontstyle='italic')
-    axes[1, 1].hist(preditions[:,1],bins=100)
-    axes[1, 1].set_xlim(-2, 5)
-    plt.suptitle(suptitle, fontsize=16, fontweight='bold', fontstyle='italic',color='darkblue')
-    
-    plt.show()
-# ==============================================================
+
+def vis_realandpredict(suptitle, references, predictions):
+    fig, axes = plt.subplots(2, 2, figsize=(9.0, 5.58))
+    tencent_blue = '#0072C6'  # 腾讯蓝色
+    for i, ax in enumerate(axes.flatten()):
+        if i>1:
+            data = references
+        else:
+            data = predictions
+        sns.histplot(data=data[:, i % 2], ax=ax, color=tencent_blue, 
+                       stat="density", common_norm=False, edgecolor='lightgray', lw=1)
+        ax.set_title(f'{["References Content", "References Wording", "Predictions Content", "Predictions Wording"][i]}',
+                     fontsize=12, fontstyle='italic', pad=15)
+        ax.set_xlim(-2, 5)
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+        ax.grid(alpha=0.3, linestyle='--', color='lightgray')  # 添加透明网格线
+        ax.spines['top'].set_color('lightgray')
+        ax.spines['right'].set_color('lightgray')
+        ax.spines['bottom'].set_color('lightgray')
+        ax.spines['left'].set_color('lightgray')
+
+    plt.suptitle(suptitle, fontsize=16, fontweight='bold', fontstyle='italic', color='darkblue')
+    plt.tight_layout();
+
+
 
 
 def compute_loss( predict, target, var, criterions):
@@ -575,7 +581,7 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
 
             #=======================
             # global
-            G_train_metrics = get_score(args, 'gloloss', all_eval_targets, all_eval_preditions)
+            G_train_metrics = get_score(args, 'glbloss', all_eval_targets, all_eval_preditions)
             #=============================================================================================
             msg.update(G_train_metrics)
 
@@ -769,30 +775,31 @@ def kfold(args,summary_df, prompt_df, verbose):
     #================================================
 
     
+    import inspect
+    args.fold = 0
+    tokenizer, model = load_from_pretrained(args)
     # # ==========================================================
     # # model head summary
-    # import inspect
-    # args.fold = 0
-    # tokenizer, model = load_from_pretrained(args)
-    # model = model.to(device)
-    # print(model.HEAD)
-    # trainloader, evalloader = get_loader( args, tokenizer,summary_df,prompt_df, 0 )
-    # for batch in trainloader:
-    #     break
-    # forward_signature = inspect.signature(model.forward)
-    # input_size = []
-    # for forward_parameter in forward_signature.parameters.keys():
-    #     print(forward_parameter)
-    #     if forward_parameter in batch:
-    #         print(forward_parameter," with size 32,512")
-    #         input_size.append((32,512))
-    #     else:
-    #         print(forward_parameter," with size None")
-    #         input_size.append(None)
-    # summary = ModelSummary(model, input_size, device)
-    # summary.summary()
-    # del tokenizer, model,trainloader, evalloader,forward_signature,batch
+    model = model.to(device)
+    print(model.HEAD)
+    trainloader, evalloader = get_loader( args, tokenizer,summary_df,prompt_df, 0 )
+    for batch in trainloader:
+        break
+    forward_signature = inspect.signature(model.forward)
+    input_size = []
+    for forward_parameter in forward_signature.parameters.keys():
+        print(forward_parameter)
+        if forward_parameter in batch:
+            print(forward_parameter," with size 32,512")
+            input_size.append((32,512))
+        else:
+            print(forward_parameter," with size None")
+            input_size.append(None)
+    summary = ModelSummary(model, input_size, device)
+    summary.summary()
+    del trainloader, evalloader,forward_signature,batch
     #======================================================================== 
+    del model
 
     oof_references, oof_preditions = None, None
     LOGGER =  get_logger(args,'train')
@@ -804,13 +811,14 @@ def kfold(args,summary_df, prompt_df, verbose):
         print(msg)
     
     reset = True
+
     for fold in args.selected_folds:
         msg = "\n\n{0}\nFOLD {1}/{2}\n{3}".format(lines,fold+1,len(args.selected_folds), lines )
         if verbose==1:
             LOGGER.info(msg)
             print(msg)
         args.fold = fold
-        tokenizer, model = load_from_pretrained(args)
+        model = load_from_pretrained(args,get_tokenizer=False)
         lossNames = args.loss['losses']
         criterions = {}
         for lossNa in lossNames.split(","):
@@ -865,13 +873,12 @@ def kfold(args,summary_df, prompt_df, verbose):
         oof_preditions = _append(oof_preditions,val_predictions)
         if verbose==1:
             vis_realandpredict(f'Fold {args.fold+1} Best Preditct VIS',val_references,val_predictions)
-        del  trainloader, optimizer, lr_scheduler
+        del  trainloader, optimizer, lr_scheduler, model, evalloader
         gc.collect()
         torch.cuda.empty_cache()
-        if args.trainer['export_lgb_feature']:
-            get_lgb_feature(args, model, evalloader, device )
+        # if args.trainer['export_lgb_feature']:
+        #     get_lgb_feature(args, model, evalloader, device )
 
-        del model, evalloader
 
 
     ver_log_met = get_score(args, 'oofloss', oof_references, oof_preditions)

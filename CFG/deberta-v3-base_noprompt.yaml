@@ -28,7 +28,6 @@ platform :
 # args.model['pooling_params']['pooling_name']
 #===========================
 
-
 data:
   prepare:
     prompt_max_len: 512
@@ -92,6 +91,9 @@ loss:
 
 model:
   target_cols : ['content', 'wording']
+
+
+
 
   # ====================================
   # max_len: 544

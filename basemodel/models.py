@@ -52,7 +52,7 @@ class CommonLitModelV1(nn.Module):
         output_dim,
         pretrained,
         download,
-        headname,
+        headname=None,
         config_path=None,
         pooling_params={},
         spans_pooling_params = {},
@@ -127,8 +127,12 @@ class CommonLitModelV1(nn.Module):
 
         # ============================================
         # heads..HEAD proj
-        self.HEADCLASS = HEAD_MAPPER[headname]
-        self.HEAD = self.HEADCLASS( finaldim,output_dim, init_head, self.config )
+        self.finaldim = finaldim
+        self.headname = headname
+        self.output_dim = output_dim
+        self.init_head = init_head
+
+        self.HEAD = HEAD_MAPPER[headname]( finaldim,output_dim, init_head, self.config )
 
         if freezing>0:
             top_n_layer_freeze(self.backbone,freezing)
@@ -152,6 +156,14 @@ class CommonLitModelV1(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
+    def split_text_length(self,L):
+        segments = []
+        while L > 320:
+            segments.append(256)
+            L -= 256
+        segments.append(L)
+        return segments
+
     def forward(
         self, 
         summary_input_ids,
@@ -171,12 +183,20 @@ class CommonLitModelV1(nn.Module):
 
         del summary_input_ids,summary_attention_mask,summary_token_type_ids
         if self.add_prompt:
+            _Lens = torch.tensor([0]+ self.split_text_length(hidden_states.shape[1])).to(summary_input_ids.device)
             p_hidden_states = self.backbone(prompt_input_ids, prompt_attention_mask)[0]
-            hidden_states = self.encoders(
-                    hidden_states,
+
+            # hidden_states = self.encoders(
+            #         hidden_states,
+            #         p_hidden_states,
+            #         # prompt_inputs['attention_mask']
+            #     )
+            hidden_states = torch.cat([ self.encoders(
+                    hidden_states[:,_Lens[idx]:_Lens[idx+1],:],
                     p_hidden_states,
                     # prompt_inputs['attention_mask']
-                )
+                ) for idx in range(len(_Lens)-1) ],dim=1)
+
             del p_hidden_states,prompt_attention_mask,prompt_input_ids
 
         if self.multilpool:
@@ -202,7 +222,7 @@ class CommonLitModelV1(nn.Module):
 
 # ============================================================
 # load from pretrained tokenizer/model for train and inference
-def load_from_pretrained(args):
+def load_from_pretrained(args,get_tokenizer=True):
     """Load the pretrained model and tokenizer."""
 
     # In distributed training, the .from_pretrained methods guarantee that only
@@ -238,10 +258,6 @@ def load_from_pretrained(args):
 
     model_parameters = {}
     model_parameters.update( args.model['params'] )
-    # model_parameters.update(
-    #     {"config_path":args.config_path,
-    #     "download":args.download}
-    #     )
     model_parameters.update( {"download":args.download}  )
 
     _update = ['CrosConvPara','CrosenEoderPara','pooling_params','spans_pooling_params','CrosAttPara']
@@ -249,35 +265,27 @@ def load_from_pretrained(args):
         model_parameters[_name] = args.model[_name]
     if args.do_inference:
         model_parameters.update( {"pretrained":False,
-                              "config_path":args.config_path } )
+                                  "config_path":args.config_path } )
         model = CommonLitModelV1(**model_parameters)
         state = torch.load(args.foldModel,
             map_location=torch.device('cpu')
                 )
         model.load_state_dict(state)
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
+        del state
+        if get_tokenizer:
+            tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
     if args.do_train:
-        from torch.cuda.amp import autocast
-        def autocast_forward(cls):
-            class NewClass(cls):
-                def __init__(self, *args, **kwargs):
-                    super(NewClass, self).__init__(*args, **kwargs)
-                @autocast()
-                def forward(self, *args, **kwargs):
-                    return super(NewClass, self).forward(*args, **kwargs)
-            
-            return NewClass
-
-        headname = args.model['params']['headname']
-        CommonLitModelV1Train = autocast_forward(CommonLitModelV1)
-        CommonLitModelV1Train.HEADCLASS = autocast_forward(HEAD_MAPPER[headname])
-
+        from TextCompete.basemodel.autocastmodel import AUTOCommonLitModelV1
 
         model_parameters.update({"pretrained":True,
                               "config_path":None })#影响model中 dropout配置
-        model =  CommonLitModelV1Train(**model_parameters)
-        tokenizer = AutoTokenizer.from_pretrained(args.download)
-    return tokenizer, model
+        model =  AUTOCommonLitModelV1(**model_parameters)
+        if get_tokenizer:
+            tokenizer = AutoTokenizer.from_pretrained(args.download)
+    if get_tokenizer:
+        return tokenizer, model
+    else:
+        return model
 
 def download_configs(args):
     tokenizer = AutoTokenizer.from_pretrained(args.download)
@@ -287,67 +295,3 @@ def download_configs(args):
     del tokenizer,config
 
 # ==================================================================================
-
-
-
-
-# def load_from_pretrained(args):
-#     """Load the pretrained model and tokenizer."""
-#     model_parameters = {}
-#     model_parameters.update( args.model['params'] )
-#     # model_parameters.update(
-#     #     {"config_path":args.config_path,
-#     #     "download":args.download}
-#     #     )
-#     model_parameters.update( {"download":args.download}  )
-
-#     _update = ['CrosConvPara','CrosenEoderPara','pooling_params','spans_pooling_params','CrosAttPara']
-#     for _name in _update:
-#         model_parameters[_name] = args.model[_name]
-#     if args.do_inference:
-#         model_parameters.update( {"pretrained":False,
-#                               "config_path":args.config_path } )
-#         model = CommonLitModelV1(**model_parameters)
-#         state = torch.load(args.foldModel,
-#             map_location=torch.device('cpu')
-#                 )
-#         model.load_state_dict(state)
-#         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
-#     if args.do_train:
-#         from torch.cuda.amp import autocast
-#         def autocast_forward(cls):
-#             class NewClass(cls):
-#                 @autocast()
-#                 def forward(self, *args, **kwargs):
-#                     return super(NewClass, self).forward(*args, **kwargs)
-            
-#             return NewClass
-
-
-#         CommonLitModelV1Train = autocast_forward(CommonLitModelV1)
-#         CommonLitModelV1Train.head = autocast_forward(HEAD_MAPPER[CommonLitModelV1Train.headname])(
-#             CommonLitModelV1Train.finaldim,
-#             CommonLitModelV1Train.output_dim, 
-#             CommonLitModelV1Train.init_head, 
-#             CommonLitModelV1Train.config 
-#         )
-
-#         model_parameters.update({"pretrained":True,
-#                               "config_path":None })#影响model中 dropout配置
-#         model =  CommonLitModelV1Train(**model_parameters)
-#     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
-#     return tokenizer, model
-
-
-
-# def download_configs(args):
-#     tokenizer = AutoTokenizer.from_pretrained(args.download)
-#     config = AutoConfig.from_pretrained(args.download, output_hidden_states=True) 
-#     tokenizer.save_pretrained(args.tokenizer_path)
-#     torch.save(config, args.config_path)
-#     del tokenizer,config
-
-# # ==================================================================================
-
-
-
