@@ -1,15 +1,16 @@
 ### TEST RESULTS
 
 - **Reformatted schema:** 
-	    ```json
-	    {
-	      "id": "<rowid+segment id>",
-	      "head":"<headline text>",
-	      "Question": "<question_text>",
-	      "Answer": "<answer_text>"
-	    }
-	    ```
-- **Transformation Code:**  [](https://github.com/Jeremyywb/TextCompete/blob/main/exam/docta-tech-assessment-data-engineer.ipynb)
+
+```json
+{
+  "id": "<rowid+segment id>",
+  "head":"<headline text>",
+  "Question": "<question_text>",
+  "Answer": "<answer_text>"
+}
+```
+- **Transformation Code:**  [code](https://github.com/Jeremyywb/TextCompete/blob/main/exam/docta-tech-assessment-data-engineer.ipynb)
 
 - **Statistics:** 102735 question-answer pairs
 - **Performance Metrics:**1.4s for cleanning process
