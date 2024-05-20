@@ -19,6 +19,11 @@ class CONVHEAD1(nn.Module):
             self.fc.apply(self._kaimin)
             self.varlayer.apply(self._xavier_init)
 
+
+
+
+
+
     def _xavier_init(self, module):
         if isinstance(module, (nn.Linear, nn.Embedding)):
             nn.init.xavier_uniform_(module.weight)

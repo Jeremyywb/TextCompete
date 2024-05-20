@@ -42,7 +42,7 @@ from TextCompete.metrics_loss.utils import (
     )
 
 from TextCompete.basemodel.models import (
-    CommonLitModelV1,load_from_pretrained
+    CommonLitModelV1,load_from_pretrained,make_prompt_embdeeding
     )
 
 
@@ -85,9 +85,9 @@ def vis_realandpredict(suptitle, references, predictions):
     tencent_blue = '#0072C6'  # 腾讯蓝色
     for i, ax in enumerate(axes.flatten()):
         if i>1:
-            data = references
-        else:
             data = predictions
+        else:
+            data = references
         sns.histplot(data=data[:, i % 2], ax=ax, color=tencent_blue, 
                        stat="density", common_norm=False, edgecolor='lightgray', lw=1)
         ax.set_title(f'{["References Content", "References Wording", "Predictions Content", "Predictions Wording"][i]}',
@@ -155,11 +155,10 @@ def status_bar(i,n):
 
 # ===========================================================
 
-
 # ===========================================================
 # optimizer & scheduler
 def get_optim_scheduler(model,args):
-    
+    REINIT_LAYERS = args.model['params']['REINIT_LAYERS']
     num_train_steps = math.ceil(args.dataset_size/args.train_loader['batch_size'])
     total_lr_steps = (
         args.trainer['epochs'] * 
@@ -213,13 +212,20 @@ def get_optim_scheduler(model,args):
     #LLDR group parameters
     if not args.trainer['HEADTrain']:
         for i,layer in enumerate(layers):
+            if REINIT_LAYERS>0 and i==0:
+                layers_weight_decay = 0.0
+                layers_LR = _LR
+            else:
+                layers_weight_decay = lr_weight_decay
+                layers_LR = _LR*LLDR**i
+
             C_grouped_optimize_parameters += [
                 { "ClipGroupName":"LLDR",
                   "params": [p for n, p in layer.named_parameters() if not namefiler(n)],
-                  "weight_decay": lr_weight_decay, "lr": _LR*LLDR**i},
+                  "weight_decay": layers_weight_decay, "lr": layers_LR},
                 { "ClipGroupName":"LLDR",
                   "params": [p for n, p in layer.named_parameters() if namefiler(n)],
-                  "weight_decay": 0.0, "lr": _LR*LLDR**i}
+                  "weight_decay": 0.0, "lr": layers_LR}
                  ]
             # if i==0:
             #     DEBUGMSG  += "\n==============================================================\n"
@@ -276,6 +282,7 @@ def get_optim_scheduler(model,args):
     return ( optimizer, scheduler )
 # =====================================================================================================
 
+    
     
 # ===========================
 # utils func
@@ -357,7 +364,7 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
             # ) 
 
             target = batch.pop('target')
-            batch = collate(batch)
+            batch = collate(batch, args)
 
             if args.split_n_components>1:
                 n_target = split_data_into_components(target, args.split_n_components,max_iter=100000)
@@ -632,44 +639,6 @@ def train(args, model, LOGGER, criterions,device, tokenizer, trainloader, optimi
     
     return all_references, all_best_predictions
 
-def train_fn(gradient_accumulation_steps, train_loader, model, criterion, optimizer, epoch, scheduler, device):
-    model.train()
-    scaler = torch.cuda.amp.GradScaler(enabled=True)
-    losses = AverageMeter()
-    global_step = 0
-    alltargets = []
-    allpreds = []
-    grads = []
-    for step, inputs  in enumerate(train_loader):
-        # print(list(inputs))
-        labels = inputs.pop('target')
-        inputs = collate(inputs)
-        
-        for k, v in inputs.items():
-            inputs[k] = v.to(device)
-        labels = labels.to(device)
-        batch_size = labels.size(0)
-        with torch.cuda.amp.autocast(enabled=True):
-            y_preds,var = model(**inputs)
-            loss = criterion(y_preds, labels)
-        if gradient_accumulation_steps > 1:
-            loss = loss / gradient_accumulation_steps
-        losses.update(loss.item(), batch_size)
-        scaler.scale(loss).backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1000)
-        grads.append(grad_norm )
-        if (step + 1) % gradient_accumulation_steps == 0:
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
-            global_step += 1
-            scheduler.step()
-        alltargets.append(labels.detach().cpu().numpy())
-        allpreds.append(y_preds.detach().cpu().numpy())
-    alltargets = np.concatenate(alltargets)
-    allpreds = np.concatenate(allpreds)
-    return alltargets,allpreds,grads
-
 
 # ==================================================================================
 # evaluate val dataloader
@@ -685,7 +654,7 @@ def evaluate(args, dataloader, model, device, criterions):
         # batch = collate(batch)
         # batch = batch_to_device(batch, device)
         target = batch.pop('target')
-        batch = collate(batch)
+        batch = collate(batch, args)
 
         if args.split_n_components>1:
             n_target = split_data_into_components(target, args.split_n_components,max_iter=100000)
@@ -778,26 +747,36 @@ def kfold(args,summary_df, prompt_df, verbose):
     import inspect
     args.fold = 0
     tokenizer, model = load_from_pretrained(args)
+
+    if args.model['params']['add_prompt'] and args.version=='CommonLitModelV3':
+        # acturally is prompts embeding dict
+        summary_sentence_embs,prompt_df = make_prompt_embdeeding(summary_df,prompt_df, device, args)
+        summary_sentence_embs_np = torch.stack(summary_sentence_embs,dim=0)
+        del summary_sentence_embs
     # # ==========================================================
     # # model head summary
-    model = model.to(device)
-    print(model.HEAD)
-    trainloader, evalloader = get_loader( args, tokenizer,summary_df,prompt_df, 0 )
-    for batch in trainloader:
-        break
-    forward_signature = inspect.signature(model.forward)
-    input_size = []
-    for forward_parameter in forward_signature.parameters.keys():
-        print(forward_parameter)
-        if forward_parameter in batch:
-            print(forward_parameter," with size 32,512")
-            input_size.append((32,512))
-        else:
-            print(forward_parameter," with size None")
-            input_size.append(None)
-    summary = ModelSummary(model, input_size, device)
-    summary.summary()
-    del trainloader, evalloader,forward_signature,batch
+    # model = model.to(device)
+    # print(model.HEAD)
+    # trainloader, evalloader = get_loader( args, tokenizer,summary_df,prompt_df, 0 )
+    # for batch in trainloader:
+    #     break
+    # forward_signature = inspect.signature(model.forward)
+    # input_size = []
+    # for forward_parameter in forward_signature.parameters.keys():
+    #     print(forward_parameter)
+    #     if forward_parameter in batch:
+    #         if forward_parameter=='prompt_embedding':
+    #             print(forward_parameter," with size 32,512,768")
+    #             input_size.append((16,512,768))
+    #         else:
+    #             input_size.append((16,512))
+    #             print(forward_parameter," with size 32,512")
+    #     else:
+    #         print(forward_parameter," with size None")
+    #         input_size.append(None)
+    # summary = ModelSummary(model, input_size, device)
+    # summary.summary()
+    # del trainloader, evalloader,forward_signature,batch
     #======================================================================== 
     del model
 
@@ -811,7 +790,7 @@ def kfold(args,summary_df, prompt_df, verbose):
         print(msg)
     
     reset = True
-
+    summary_df[["content_pred","wording_pred"]] = 0
     for fold in args.selected_folds:
         msg = "\n\n{0}\nFOLD {1}/{2}\n{3}".format(lines,fold+1,len(args.selected_folds), lines )
         if verbose==1:
@@ -861,14 +840,17 @@ def kfold(args,summary_df, prompt_df, verbose):
         #     if p.grad is not None:
         #         p.register_hook(gradhook(_name))
         #=======================================
-
-        trainloader, evalloader = get_loader( args, tokenizer,summary_df,prompt_df, fold )
+        if args.version=='CommonLitModelV3':
+            trainloader, evalloader = get_loader( args, tokenizer,summary_df,prompt_df,summary_sentence_embs_np, fold )
+        else:
+            trainloader, evalloader = get_loader( args, tokenizer,summary_df,prompt_df, fold = fold )
+        
         optimizer, lr_scheduler = get_optim_scheduler(model,args)
 
         val_references, val_predictions = train(
             args, model, LOGGER, criterions, device, tokenizer, 
             trainloader, optimizer, lr_scheduler, evalloader)
-        
+        summary_df.loc[summary_df['fold']==fold,["content_pred","wording_pred"] ] = val_predictions
         oof_references = _append(oof_references,val_references)
         oof_preditions = _append(oof_preditions,val_predictions)
         if verbose==1:
@@ -879,7 +861,9 @@ def kfold(args,summary_df, prompt_df, verbose):
         # if args.trainer['export_lgb_feature']:
         #     get_lgb_feature(args, model, evalloader, device )
 
-
+    
+    # summary_df[["content_pred","wording_pred"]] = oof_preditions
+    summary_df[['student_id',"content_pred","wording_pred"]].to_csv(args.platform['featurize']['opath']+"oof.csv",index=False)
 
     ver_log_met = get_score(args, 'oofloss', oof_references, oof_preditions)
     ver_msg = (
@@ -902,6 +886,9 @@ def kfold(args,summary_df, prompt_df, verbose):
         ver_msg+= f"# {_name}: {_value}"
     ver_msg += "\n#============================================\n\n"
     return ver_msg,ver_log_met
+
+
+
 
 
 

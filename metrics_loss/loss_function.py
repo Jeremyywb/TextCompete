@@ -263,3 +263,28 @@ def sample(pi, sigma, mu):
     variance_samples = sigma.gather(1, pis).detach().squeeze()
     mean_samples = mu.detach().gather(1, pis).squeeze()
     return (gaussian_noise * variance_samples + mean_samples).transpose(0, 1)
+
+
+
+# from nltk.sentiment.vader import SentimentIntensityAnalyzer
+
+# sentiment_analyzer = SentimentIntensityAnalyzer()
+
+# # 分析总结文本
+# sentiments = sentiment_analyzer.polarity_scores(summary)
+
+# # 获取正面和负面词汇
+# positive_words = set()
+# negative_words = set()
+
+# # 根据情感分数判断词语的情感，并将唯一的正面和负面词汇添加到集合中
+# for word in summary.split():
+#     word_sentiment = sentiment_analyzer.polarity_scores(word)
+#     if word_sentiment['pos'] > 0:
+#         positive_words.add(word)
+#     elif word_sentiment['neg'] > 0:
+#         negative_words.add(word)
+
+# # 输出唯一的正面和负面词汇数量
+# print(f"唯一的正面词汇数量: {len(positive_words)}")
+# print(f"唯一的负面词汇数量: {len(negative_words)}")

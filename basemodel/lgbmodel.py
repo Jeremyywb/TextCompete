@@ -71,5 +71,3 @@ def lgb_train(args,fold,LgbPara):
         gbm.save_model(f'{lgb_model_prefix}_{targetN}_lgbmodel.txt')
     return oof,y_valid
 
-
-
