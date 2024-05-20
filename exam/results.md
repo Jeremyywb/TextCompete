@@ -11,7 +11,7 @@
   "Answer": "<answer_text>"
 }
 ```
-- **Transformation Code:**  [code](https://github.com/Jeremyywb/TextCompete/blob/main/exam/ProcessingCode.ipynb)
+- **Transformation Code:**  [code](https://github.com/Jeremyywb/TextCompete/blob/main/exam/ProcessingCode.py)
 - **Output File:** [output](https://github.com/Jeremyywb/TextCompete/blob/main/exam/AdaptLLM-finance-tasks-Headline.json)
 - **Statistics:** 102735 question-answer pairs
 - **Performance Metrics:** 1.4s for cleanning process
