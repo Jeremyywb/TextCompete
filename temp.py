@@ -26,3 +26,8 @@ def map_amount_to_interval(amount):
 
 
 df['额度区间'] = df['授信额度那个字段'].map( map_amount_to_interval )
+result = df.groupby(['quarter','额度区间'])['uscc'].size().reset_index()
+result.columns = ['quarter','额度区间','CNT']
+res01 = df.groupby(['quarter'])['uscc'].size().to_dict()
+result['quarterCNT'] = result['quarter'].map( res01 )
+result['季度内额度区间占比'] = result['CNT']/result['quarterCNT']
