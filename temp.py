@@ -14,12 +14,12 @@ def map_amount_to_interval(amount):
     
     # 在间隔为50的区间中查找
     for lower, upper in intervals_50:
-        if lower < amount <= upper:
+        if lower*10e4 < amount <= upper*10e4:
             return f"({lower}-{upper}]"
     
     # 在间隔为100的区间中查找
     for lower, upper in intervals_100:
-        if lower < amount <= upper:
+        if lower*10e4 < amount <= upper*10e4:
             return f"({lower}-{upper}]"
     
     return "Amount out of range"
