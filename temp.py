@@ -31,3 +31,14 @@ result.columns = ['quarter','额度区间','CNT']
 res01 = df.groupby(['quarter'])['uscc'].size().to_dict()
 result['quarterCNT'] = result['quarter'].map( res01 )
 result['季度内额度区间占比'] = result['CNT']/result['quarterCNT']
+
+
+
+dfs = []
+for group_name, group_df in df.groupby('quarter'):
+	summary = group_df['授信额度那个字段'].value_counts(normalize=True).reset_index()
+	summary.columns = ['额度值','占比']
+	summary['quarter'] = group_name
+	dfs.append(summary)
+
+creditSummary = pd.concat(dfs)
