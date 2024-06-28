@@ -288,3 +288,15 @@ def sample(pi, sigma, mu):
 # # 输出唯一的正面和负面词汇数量
 # print(f"唯一的正面词汇数量: {len(positive_words)}")
 # print(f"唯一的负面词汇数量: {len(negative_words)}")
+
+
+对于服从正态分布的连续变量，这不是问题
+
+Kolmogorov-Smirnov检验评估连续变量的正态性
+
+最优尺度回归
+
+
+目标分析
+特征工程
+单变量分析

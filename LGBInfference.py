@@ -255,3 +255,7 @@ submission[['student_id'] + tarcols].to_csv('lgb_submission.csv', index=False)
  'you’re  you are',
  'you’ve  you have',
  'when’d  when did']
+
+
+
+ 
