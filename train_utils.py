@@ -805,6 +805,7 @@ def kfold(args,summary_df, prompt_df, verbose):
         model = load_from_pretrained(args,get_tokenizer=False)
         lossNames = args.loss['losses']
         criterions = {}
+
         for lossNa in lossNames.split(","):
             lossPara = args.loss[lossNa]
             criterions[lossNa] =  eval(lossNa)(**lossPara).to(device) 

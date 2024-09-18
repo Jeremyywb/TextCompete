@@ -36,8 +36,13 @@ result['季度内额度区间占比'] = result['CNT']/result['quarterCNT']
 
 dfs = []
 for group_name, group_df in df.groupby('quarter'):
-	summary = group_df['授信额度那个字段'].value_counts(normalize=True).reset_index()
-	summary.columns = ['额度值','占比']
+
+	summary = group_df['授信额度那个字段'].value_counts().reset_index()
+	#normalize=True 去掉
+	summary.columns = ['额度值','个数']
+	total = summary['个数'].sum()
+	summary['总数'] = total
+	summary['占比'] = summary['个数']/
 	summary['quarter'] = group_name
 	dfs.append(summary)
 

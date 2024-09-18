@@ -1054,7 +1054,7 @@ def chunktext(test):
             GATHERTEX = te
             GATHERLEN = _len
         else:
-            GATHERTEX+=te
+            GATHERTEX+=  te
             GATHERLEN += _len
 
         if GATHERLEN>MAXLEN:
